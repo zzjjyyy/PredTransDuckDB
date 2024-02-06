@@ -1,6 +1,7 @@
 add_subdirectory(compressed_materialization)
 add_subdirectory(join_order)
 add_subdirectory(matcher)
+add_subdirectory(predicate_transfer)
 add_subdirectory(pullup)
 add_subdirectory(pushdown)
 add_subdirectory(rule)

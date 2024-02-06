@@ -5,11 +5,13 @@
 #include "duckdb/common/types/vector.hpp"
 #include "duckdb/storage/table/append_state.hpp"
 #include "duckdb/storage/storage_manager.hpp"
+#include "duckdb/planner/filter/bloom_table_filter.hpp"
 #include "duckdb/planner/filter/conjunction_filter.hpp"
 #include "duckdb/planner/filter/constant_filter.hpp"
 #include "duckdb/main/config.hpp"
 #include "duckdb/storage/table/scan_state.hpp"
 #include "duckdb/storage/data_pointer.hpp"
+#include "duckdb/optimizer/predicate_transfer/bloom_filter/bloom_filter_use_kernel.hpp"
 
 #include <cstring>
 
@@ -483,6 +485,11 @@ idx_t ColumnSegment::FilterSelection(SelectionVector &sel, Vector &result, const
 		return TemplatedNullSelection<true>(sel, approved_tuple_count, mask);
 	case TableFilterType::IS_NOT_NULL:
 		return TemplatedNullSelection<false>(sel, approved_tuple_count, mask);
+	case TableFilterType::BLOOM_FILTER: {
+		auto &bloom_table_filter = filter.Cast<BloomTableFilter>();
+		BloomFilterUseKernel::filter(result, bloom_table_filter.bloom_filter, sel, approved_tuple_count, mask);
+		return approved_tuple_count;
+	} 
 	default:
 		throw InternalException("FIXME: unsupported type for filter selection");
 	}

@@ -13,6 +13,7 @@
 #include "duckdb/optimizer/filter_pullup.hpp"
 #include "duckdb/optimizer/filter_pushdown.hpp"
 #include "duckdb/optimizer/in_clause_rewriter.hpp"
+#include "duckdb/optimizer/predicate_transfer/predicate_transfer_optimizer.hpp"
 #include "duckdb/optimizer/join_order/join_order_optimizer.hpp"
 #include "duckdb/optimizer/regex_range_filter.hpp"
 #include "duckdb/optimizer/remove_duplicate_groups.hpp"
@@ -117,6 +118,13 @@ unique_ptr<LogicalOperator> Optimizer::Optimize(unique_ptr<LogicalOperator> plan
 	RunOptimizer(OptimizerType::DELIMINATOR, [&]() {
 		Deliminator deliminator;
 		plan = deliminator.Optimize(std::move(plan));
+	});
+
+	// then we perform the join ordering optimization
+	// this also rewrites cross products + filters into joins and performs filter pushdowns
+	RunOptimizer(OptimizerType::PREDICATE_TRANSFER, [&]() {
+		PredicateTransferOptimizer optimizer(context);
+		plan = optimizer.Optimize(std::move(plan));
 	});
 
 	// then we perform the join ordering optimization
