@@ -4,7 +4,7 @@
 namespace duckdb {
 
 void BloomFilterUseKernel::filter(const Vector &result,
-            const std::shared_ptr<BloomFilter> &bloom_filter,
+            BlockedBloomFilter* bloom_filter,
             SelectionVector &sel,
             idx_t &approved_tuple_count,
             ValidityMask &mask) {
@@ -12,7 +12,7 @@ void BloomFilterUseKernel::filter(const Vector &result,
     idx_t result_count = 0;
     for (auto i = 0; i < approved_tuple_count; i++) {
         auto idx = sel.get_index(i);
-		if (mask.RowIsValid(idx) && bloom_filter->contains(result.GetValue(i).Hash())) {
+		if (mask.RowIsValid(idx) && bloom_filter->Find(result.GetValue(i).Hash())) {
 			new_sel.set_index(result_count++, idx);
 		}
     }

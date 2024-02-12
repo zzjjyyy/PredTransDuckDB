@@ -15,8 +15,8 @@ private:
 
     DAGManager dag_manager;
 
-    void GetColumnBindingExpression(unique_ptr<Expression> &expr, vector<unique_ptr<BoundColumnRefExpression>> &expressions);
+    void GetColumnBindingExpression(Expression &expr, vector<BoundColumnRefExpression*> &expressions);
 
-    vector<pair<idx_t, shared_ptr<BloomFilter>>> CreateBloomFilter(LogicalOperator &node, bool reverse);
+    vector<pair<idx_t, shared_ptr<BlockedBloomFilter>>> CreateBloomFilter(LogicalOperator &node, bool reverse);
 };
 }

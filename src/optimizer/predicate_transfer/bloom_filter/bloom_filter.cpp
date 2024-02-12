@@ -1,172 +1,321 @@
 #include "duckdb/optimizer/predicate_transfer/bloom_filter/bloom_filter.hpp"
-#include <fmt/format.h>
-#include <cmath>
+#include <random>
+#include "arrow/acero/util.h"       // PREFETCH
+#include "arrow/util/bit_util.h"    // Log2
+#include "arrow/util/bitmap_ops.h"  // CountSetBits
+#include "arrow/util/config.h"
 
 namespace duckdb {
+BloomFilterMasks::BloomFilterMasks() {
+  std::seed_seq seed{0, 0, 0, 0, 0, 0, 0, 0};
+  std::mt19937 re(seed);
+  std::uniform_int_distribution<uint64_t> rd;
+  auto random = [&re, &rd](int min_value, int max_value) {
+    return min_value + rd(re) % (max_value - min_value + 1);
+  };
 
-BloomFilter::BloomFilter(ColumnBinding col, int64_t capacity, double falsePositiveRate) :
-  BloomFilterBase(BloomFilterType::VANILLA_BF, capacity, capacity <= BLOOM_FILTER_MAX_INPUT_SIZE),
-  falsePositiveRate_(falsePositiveRate), column_binding(col) {
-  D_ASSERT(falsePositiveRate >= 0.0 && falsePositiveRate <= 1.0);
-}
+  memset(masks_, 0, kTotalBytes);
 
-BloomFilter::BloomFilter(ColumnBinding col,
-                         int64_t capacity,
-                         double falsePositiveRate,
-                         bool valid,
-                         int64_t numHashFunctions,
-                         int64_t numBits,
-                         const std::vector<std::shared_ptr<UniversalHashFunction>> &hashFunctions,
-                         const std::vector<int64_t> &bitArray) :
-  BloomFilterBase(BloomFilterType::VANILLA_BF, capacity, valid),
-  column_binding(col),
-  falsePositiveRate_(falsePositiveRate),
-  numHashFunctions_(numHashFunctions),
-  numBits_(numBits),
-  hashFunctions_(hashFunctions),
-  bitArray_(bitArray) {
-
-  D_ASSERT(falsePositiveRate >= 0.0 && falsePositiveRate <= 1.0);
-}
-
-std::shared_ptr<BloomFilter> BloomFilter::make(ColumnBinding col, int64_t capacity, double falsePositiveRate) {
-  return std::make_shared<BloomFilter>(col, capacity, falsePositiveRate);
-}
-
-std::shared_ptr<BloomFilter> BloomFilter::make(ColumnBinding col,
-                                               int64_t capacity,
-                                               double falsePositiveRate,
-                                               bool valid,
-                                               int64_t numHashFunctions,
-                                               int64_t numBits,
-                                               const std::vector<std::shared_ptr<UniversalHashFunction>> &hashFunctions,
-                                               const std::vector<int64_t> &bitArray) {
-  return std::make_shared<BloomFilter>(col, capacity, falsePositiveRate, valid,
-                                       numHashFunctions, numBits, hashFunctions, bitArray);
-}
-
-void BloomFilter::init() {
-  numHashFunctions_ = calculateNumHashFunctions();
-  numBits_ = calculateNumBits();
-  hashFunctions_ = makeHashFunctions();
-  bitArray_ = makeBitArray();
-}
-
-void BloomFilter::add(int64_t key) {
-  D_ASSERT(capacity_ > 0);
-
-  auto hs = hashes(key);
-
-  for (auto h: hs) {
-    // set h-th bit
-    int64_t valueId = h / 64;
-    int valueOffset = h % 64;
-    bitArray_[valueId] ^= (-1 ^ bitArray_[valueId]) & (1UL << valueOffset);
-  }
-}
-
-bool BloomFilter::contains(int64_t key) {
-  if (capacity_ == 0)
-    return false;
-
-  auto hs = hashes(key);
-
-  for (auto h: hs) {
-    // check h-th bit
-    int64_t valueId = h / 64;
-    int valueOffset = h % 64;
-    if (!((bitArray_[valueId] >> valueOffset) & 1UL)) {
-      return false;
+  // Prepare the first mask
+  //
+  int num_bits_set = static_cast<int>(random(kMinBitsSet, kMaxBitsSet));
+  for (int i = 0; i < num_bits_set; ++i) {
+    for (;;) {
+      int bit_pos = static_cast<int>(random(0, kBitsPerMask - 1));
+      if (!arrow::bit_util::GetBit(masks_, bit_pos)) {
+        arrow::bit_util::SetBit(masks_, bit_pos);
+        break;
+      }
     }
   }
 
+  int64_t num_bits_total = kNumMasks + kBitsPerMask - 1;
+
+  // The value num_bits_set will be updated in each iteration of the loop to
+  // represent the number of bits set in the entire mask directly preceding the
+  // currently processed bit.
+  //
+  for (int64_t i = kBitsPerMask; i < num_bits_total; ++i) {
+    // The value of the lowest bit of the previous mask that will be removed
+    // from the current mask as we move to the next position in the bit vector
+    // of masks.
+    //
+    int bit_leaving = arrow::bit_util::GetBit(masks_, i - kBitsPerMask) ? 1 : 0;
+
+    // Next bit has to be 1 because of minimum bits in a mask requirement
+    //
+    if (bit_leaving == 1 && num_bits_set == kMinBitsSet) {
+      arrow::bit_util::SetBit(masks_, i);
+      continue;
+    }
+
+    // Next bit has to be 0 because of maximum bits in a mask requirement
+    //
+    if (bit_leaving == 0 && num_bits_set == kMaxBitsSet) {
+      continue;
+    }
+
+    // Next bit can be random. Use the expected number of bits set in a mask
+    // as a probability of 1.
+    //
+    if (random(0, kBitsPerMask * 2 - 1) < kMinBitsSet + kMaxBitsSet) {
+      arrow::bit_util::SetBit(masks_, i);
+      if (bit_leaving == 0) {
+        ++num_bits_set;
+      }
+    } else {
+      if (bit_leaving == 1) {
+        --num_bits_set;
+      }
+    }
+  }
+}
+
+BloomFilterMasks BlockedBloomFilter::masks_;
+
+arrow::Status BlockedBloomFilter::CreateEmpty(int64_t num_rows_to_insert, arrow::MemoryPool* pool) {
+  // Compute the size
+  //
+  constexpr int64_t min_num_bits_per_key = 8;
+  constexpr int64_t min_num_bits = 512;
+  int64_t desired_num_bits =
+      std::max(min_num_bits, num_rows_to_insert * min_num_bits_per_key);
+  int log_num_bits = arrow::bit_util::Log2(desired_num_bits);
+
+  log_num_blocks_ = log_num_bits - 6;
+  num_blocks_ = 1ULL << log_num_blocks_;
+
+  // Allocate and zero out bit vector
+  //
+  int64_t buffer_size = num_blocks_ * sizeof(uint64_t);
+  ARROW_ASSIGN_OR_RAISE(buf_, AllocateBuffer(buffer_size, pool));
+  blocks_ = reinterpret_cast<uint64_t*>(buf_->mutable_data());
+  memset(blocks_, 0, buffer_size);
+
+  return arrow::Status::OK();
+}
+
+template <typename T>
+void BlockedBloomFilter::InsertImp(int64_t num_rows, const T* hashes) {
+  for (int64_t i = 0; i < num_rows; ++i) {
+    Insert(hashes[i]);
+  }
+}
+
+void BlockedBloomFilter::Insert(int64_t hardware_flags, int64_t num_rows,
+                                const uint32_t* hashes) {
+  int64_t num_processed = 0;
+#if defined(ARROW_HAVE_RUNTIME_AVX2)
+  if (hardware_flags & arrow::internal::CpuInfo::AVX2) {
+    num_processed = Insert_avx2(num_rows, hashes);
+  }
+#endif
+  InsertImp(num_rows - num_processed, hashes + num_processed);
+}
+
+void BlockedBloomFilter::Insert(int64_t hardware_flags, int64_t num_rows,
+                                const uint64_t* hashes) {
+  int64_t num_processed = 0;
+#if defined(ARROW_HAVE_RUNTIME_AVX2)
+  if (hardware_flags & arrow::internal::CpuInfo::AVX2) {
+    num_processed = Insert_avx2(num_rows, hashes);
+  }
+#endif
+  InsertImp(num_rows - num_processed, hashes + num_processed);
+}
+
+template <typename T>
+void BlockedBloomFilter::FindImp(int64_t num_rows, const T* hashes,
+                                 uint8_t* result_bit_vector, bool enable_prefetch) const {
+  int64_t num_processed = 0;
+  uint64_t bits = 0ULL;
+
+  if (enable_prefetch && UsePrefetch()) {
+    constexpr int kPrefetchIterations = 16;
+    for (int64_t i = 0; i < num_rows - kPrefetchIterations; ++i) {
+      PREFETCH(blocks_ + block_id(hashes[i + kPrefetchIterations]));
+      uint64_t result = Find(hashes[i]) ? 1ULL : 0ULL;
+      bits |= result << (i & 63);
+      if ((i & 63) == 63) {
+        reinterpret_cast<uint64_t*>(result_bit_vector)[i / 64] = bits;
+        bits = 0ULL;
+      }
+    }
+    num_processed = num_rows - kPrefetchIterations;
+  }
+
+  for (int64_t i = num_processed; i < num_rows; ++i) {
+    uint64_t result = Find(hashes[i]) ? 1ULL : 0ULL;
+    bits |= result << (i & 63);
+    if ((i & 63) == 63) {
+      reinterpret_cast<uint64_t*>(result_bit_vector)[i / 64] = bits;
+      bits = 0ULL;
+    }
+  }
+
+  for (int i = 0; i < arrow::bit_util::CeilDiv(num_rows % 64, 8); ++i) {
+    result_bit_vector[num_rows / 64 * 8 + i] = static_cast<uint8_t>(bits >> (i * 8));
+  }
+}
+
+void BlockedBloomFilter::Find(int64_t hardware_flags, int64_t num_rows,
+                              const uint32_t* hashes, uint8_t* result_bit_vector,
+                              bool enable_prefetch) const {
+  int64_t num_processed = 0;
+
+#if defined(ARROW_HAVE_RUNTIME_AVX2)
+  if (!(enable_prefetch && UsePrefetch()) &&
+      (hardware_flags & arrow::internal::CpuInfo::AVX2)) {
+    num_processed = Find_avx2(num_rows, hashes, result_bit_vector);
+    // Make sure that the results in bit vector for the remaining rows start at
+    // a byte boundary.
+    //
+    num_processed -= (num_processed % 8);
+  }
+#endif
+
+  ARROW_DCHECK(num_processed % 8 == 0);
+  FindImp(num_rows - num_processed, hashes + num_processed,
+          result_bit_vector + num_processed / 8, enable_prefetch);
+}
+
+void BlockedBloomFilter::Find(int64_t hardware_flags, int64_t num_rows,
+                              const uint64_t* hashes, uint8_t* result_bit_vector,
+                              bool enable_prefetch) const {
+  int64_t num_processed = 0;
+
+#if defined(ARROW_HAVE_RUNTIME_AVX2)
+  if (!(enable_prefetch && UsePrefetch()) &&
+      (hardware_flags & arrow::internal::CpuInfo::AVX2)) {
+    num_processed = Find_avx2(num_rows, hashes, result_bit_vector);
+    num_processed -= (num_processed % 8);
+  }
+#endif
+
+  ARROW_DCHECK(num_processed % 8 == 0);
+  FindImp(num_rows - num_processed, hashes + num_processed,
+          result_bit_vector + num_processed / 8, enable_prefetch);
+}
+
+void BlockedBloomFilter::Fold() {
+  // Keep repeating until one of the stop conditions checked inside the loop
+  // is met
+  for (;;) {
+    // If we reached the minimum size of blocked Bloom filter then stop
+    constexpr int log_num_blocks_min = 4;
+    if (log_num_blocks_ <= log_num_blocks_min) {
+      break;
+    }
+
+    int64_t num_bits = num_blocks_ * 64;
+
+    // Calculate the number of bits set in this blocked Bloom filter
+    int64_t num_bits_set = 0;
+    int batch_size_max = 65536;
+    for (int64_t i = 0; i < num_bits; i += batch_size_max) {
+      int batch_size =
+          static_cast<int>(std::min(num_bits - i, static_cast<int64_t>(batch_size_max)));
+      num_bits_set +=
+          arrow::internal::CountSetBits(reinterpret_cast<const uint8_t*>(blocks_) + i / 8,
+                                        /*offset=*/0, batch_size);
+    }
+
+    // If at least 1/4 of bits is set then stop
+    if (4 * num_bits_set >= num_bits) {
+      break;
+    }
+
+    // Decide how many times to fold at once.
+    // The resulting size should not be less than log_num_bits_min.
+    int num_folds = 1;
+
+    while ((log_num_blocks_ - num_folds) > log_num_blocks_min &&
+           (4 * num_bits_set) < (num_bits >> num_folds)) {
+      ++num_folds;
+    }
+
+    // Actual update to block Bloom filter bits
+    SingleFold(num_folds);
+  }
+}
+
+void BlockedBloomFilter::SingleFold(int num_folds) {
+  // Calculate number of slices and size of a slice
+  //
+  int64_t num_slices = 1LL << num_folds;
+  int64_t num_slice_blocks = (num_blocks_ >> num_folds);
+  uint64_t* target_slice = blocks_;
+
+  // OR bits of all the slices and store result in the first slice
+  //
+  for (int64_t slice = 1; slice < num_slices; ++slice) {
+    const uint64_t* source_slice = blocks_ + slice * num_slice_blocks;
+    for (int i = 0; i < num_slice_blocks; ++i) {
+      target_slice[i] |= source_slice[i];
+    }
+  }
+
+  log_num_blocks_ -= num_folds;
+  num_blocks_ = 1ULL << log_num_blocks_;
+}
+
+int BlockedBloomFilter::NumHashBitsUsed() const {
+  constexpr int num_bits_for_mask = (BloomFilterMasks::kLogNumMasks + 6);
+  int num_bits_for_block = log_num_blocks();
+  return num_bits_for_mask + num_bits_for_block;
+}
+
+bool BlockedBloomFilter::IsSameAs(const BlockedBloomFilter* other) const {
+  if (log_num_blocks_ != other->log_num_blocks_ || num_blocks_ != other->num_blocks_) {
+    return false;
+  }
+  if (memcmp(blocks_, other->blocks_, num_blocks_ * sizeof(uint64_t)) != 0) {
+    return false;
+  }
   return true;
 }
 
-ColumnBinding BloomFilter::GetCol() {
-  return column_binding;
+int64_t BlockedBloomFilter::NumBitsSet() const {
+  return arrow::internal::CountSetBits(reinterpret_cast<const uint8_t*>(blocks_),
+                                       /*offset=*/0, (1LL << log_num_blocks()) * 64);
 }
 
-std::shared_ptr<BloomFilter> BloomFilter::CopywithNewColBinding(ColumnBinding column_binding){
-  return BloomFilter::make(column_binding, capacity_, falsePositiveRate_, valid_, numHashFunctions_, numBits_, hashFunctions_, bitArray_);
+arrow::Status BloomFilterBuilder_SingleThreaded::Begin(size_t /*num_threads*/,
+                                                       int64_t hardware_flags, arrow::MemoryPool* pool,
+                                                       int64_t num_rows, int64_t /*num_batches*/,
+                                                       BlockedBloomFilter* build_target) {
+  hardware_flags_ = hardware_flags;
+  build_target_ = build_target;
+
+  RETURN_NOT_OK(build_target->CreateEmpty(num_rows, pool));
+
+  return arrow::Status::OK();
 }
 
-const std::vector<int64_t> BloomFilter::getBitArray() const {
-  return bitArray_;
+arrow::Status BloomFilterBuilder_SingleThreaded::PushNextBatch(size_t /*thread_index*/,
+                                                        int64_t num_rows,
+                                                        const uint32_t* hashes) {
+  PushNextBatchImp(num_rows, hashes);
+  return arrow::Status::OK();
 }
 
-void BloomFilter::setBitArray(const std::vector<int64_t> &bitArray) {
-  bitArray_ = bitArray;
-};
-
-bool BloomFilter::merge(const std::shared_ptr<BloomFilter> &other) {
-  // check
-  if (capacity_ != other->capacity_) {
-    throw InternalException("Capacity mismatch, %d vs %d", capacity_, other->capacity_);
-  }
-  if (falsePositiveRate_ != other->falsePositiveRate_) {
-    throw InternalException("FalsePositiveRate mismatch, %d vs %d",
-                             falsePositiveRate_, other->falsePositiveRate_);
-  }
-
-  // update bit arrays
-  std::vector<int64_t> mergedBitArray;
-  mergedBitArray.reserve(bitArray_.size());
-  for (uint64_t i = 0; i < bitArray_.size(); ++i) {
-    mergedBitArray.emplace_back(bitArray_[i] | other->bitArray_[i]);
-  }
-  bitArray_ = mergedBitArray;
-
-  return true;
+arrow::Status BloomFilterBuilder_SingleThreaded::PushNextBatch(size_t /*thread_index*/,
+                                                        int64_t num_rows,
+                                                        const uint64_t* hashes) {
+  PushNextBatchImp(num_rows, hashes);
+  return arrow::Status::OK();
 }
 
-int64_t BloomFilter::calculateNumHashFunctions() const {
-  return k_from_p(falsePositiveRate_);
+template <typename T>
+void BloomFilterBuilder_SingleThreaded::PushNextBatchImp(int64_t num_rows,
+                                                         const T* hashes) {
+  build_target_->Insert(hardware_flags_, num_rows, hashes);
 }
 
-int64_t BloomFilter::calculateNumBits() const {
-  return m_from_np(capacity_, falsePositiveRate_);
-}
-
-std::vector<std::shared_ptr<UniversalHashFunction>> BloomFilter::makeHashFunctions() {
-  std::vector<std::shared_ptr<UniversalHashFunction>> hashFunctions;
-
-  // check capacity
-  if (capacity_ == 0) {
-    numHashFunctions_ = 0;
-    return hashFunctions;
-  }
-
-  hashFunctions.reserve(numHashFunctions_);
-  for (int64_t s = 0; s < numHashFunctions_; ++s) {
-    hashFunctions.emplace_back(UniversalHashFunction::make(numBits_));
-  }
-  return hashFunctions;
-}
-
-std::vector<int64_t> BloomFilter::makeBitArray() const {
-  int64_t len = numBits_ / 64 + 1;
-  return std::vector<int64_t>(len, 0);
-}
-
-std::vector<int64_t> BloomFilter::hashes(int64_t key) {
-  std::vector<int64_t> hashes(hashFunctions_.size());
-
-  for (size_t i = 0; i < hashFunctions_.size(); ++i) {
-    hashes[i] = hashFunctions_[i]->hash(key);
-  }
-
-  return hashes;
-}
-
-int64_t BloomFilter::k_from_p(double p) {
-  return std::ceil(
-          std::log(1 / p) / std::log(2));
-}
-
-int64_t BloomFilter::m_from_np(int64_t n, double p) {
-  return std::ceil(
-          ((double) n) * std::abs(std::log(p)) / std::pow(std::log(2), 2));
+std::unique_ptr<BloomFilterBuilder> BloomFilterBuilder::Make(BloomFilterBuildStrategy strategy) {
+  strategy = BloomFilterBuildStrategy::SINGLE_THREADED;
+  std::unique_ptr<BloomFilterBuilder> impl{new BloomFilterBuilder_SingleThreaded()};
+  return impl;
 }
 
 }

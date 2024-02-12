@@ -85,16 +85,20 @@ else()
       duckdb_fastpforlib
       duckdb_skiplistlib
       duckdb_mbedtls)
+  
+  find_package(Arrow REQUIRED)
 
   add_library(duckdb SHARED ${ALL_OBJECT_FILES})
   target_link_libraries(duckdb ${DUCKDB_LINK_LIBS})
   target_link_libraries(duckdb primesieve)
+  target_link_libraries(duckdb Arrow::arrow_shared)
   link_threads(duckdb)
   link_extension_libraries(duckdb)
 
   add_library(duckdb_static STATIC ${ALL_OBJECT_FILES})
   target_link_libraries(duckdb_static ${DUCKDB_LINK_LIBS})
   target_link_libraries(duckdb_static primesieve)
+  target_link_libraries(duckdb_static Arrow::arrow_shared)
   link_threads(duckdb_static)
   link_extension_libraries(duckdb_static)
 

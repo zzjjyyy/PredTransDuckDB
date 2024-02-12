@@ -49,6 +49,31 @@ string LogicalGet::ParamsToString() const {
 	return result + "\n" + function.to_string(bind_data.get());
 }
 
+unique_ptr<LogicalOperator> LogicalGet::FastCopy() {
+	unique_ptr<TableScanBindData> tmp_bind_data =
+	    make_uniq<TableScanBindData>(bind_data->Cast<TableScanBindData>().table);
+	tmp_bind_data->column_ids = bind_data->Cast<TableFunctionData>().column_ids;
+	unique_ptr<LogicalGet> result =
+	    make_uniq<LogicalGet>(table_index, this->function, std::move(tmp_bind_data), returned_types, names);
+	result->types = types;
+	result->estimated_cardinality = estimated_cardinality;
+	for (auto &child : expressions) {
+		result->expressions.push_back(child->Copy());
+	}
+	result->has_estimated_cardinality = has_estimated_cardinality;
+	result->column_ids.assign(column_ids.begin(), column_ids.end());
+	result->projection_ids.assign(projection_ids.begin(), projection_ids.end());
+	for (auto &child : table_filters.filters) {
+		result->table_filters.filters[child.first] = std::move(child.second);
+	}
+	result->parameters.assign(parameters.begin(), parameters.end());
+	result->named_parameters = named_parameters;
+	result->input_table_types.assign(input_table_types.begin(), input_table_types.end());
+	result->input_table_names.assign(input_table_names.begin(), input_table_names.end());
+	result->projected_input.assign(projected_input.begin(), projected_input.end());
+	return unique_ptr_cast<LogicalGet, LogicalOperator>(std::move(result));
+}
+
 vector<ColumnBinding> LogicalGet::GetColumnBindings() {
 	if (column_ids.empty()) {
 		return {ColumnBinding(table_index, 0)};

@@ -24,6 +24,8 @@ public:
 	vector<idx_t> projection_map;
 
 public:
+	unique_ptr<LogicalOperator> FastCopy();
+	
 	vector<ColumnBinding> GetColumnBindings() override;
 
 	void Serialize(Serializer &serializer) const override;

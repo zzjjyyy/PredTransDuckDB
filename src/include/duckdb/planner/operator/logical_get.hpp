@@ -60,6 +60,8 @@ public:
 	optional_ptr<TableCatalogEntry> GetTable() const;
 
 public:
+	unique_ptr<LogicalOperator> FastCopy();
+	
 	vector<ColumnBinding> GetColumnBindings() override;
 	idx_t EstimateCardinality(ClientContext &context) override;
 

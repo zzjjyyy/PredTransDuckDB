@@ -15,13 +15,13 @@ public:
         return id;
     }
 
-    void AddIn(idx_t from, unique_ptr<Expression> filter);
+    void AddIn(idx_t from, Expression* filter);
 
-    void AddIn(idx_t from, shared_ptr<BloomFilter> bloom_filter);
+    void AddIn(idx_t from, shared_ptr<BlockedBloomFilter> bloom_filter);
 
-    void AddOut(idx_t to, unique_ptr<Expression> filter);
+    void AddOut(idx_t to, Expression* filter);
 
-    void AddOut(idx_t to, shared_ptr<BloomFilter> bloom_filter);
+    void AddOut(idx_t to, shared_ptr<BlockedBloomFilter> bloom_filter);
 
     vector<unique_ptr<DAGEdge>> in_;
 
@@ -36,11 +36,11 @@ public:
     DAGEdge(idx_t id) : dest_(id) {
     }
 
-    void Push(unique_ptr<Expression> filter) {
-        filters.emplace_back(std::move(filter));
+    void Push(Expression* filter) {
+        filters.emplace_back(filter);
     }
 
-    void Push(shared_ptr<BloomFilter> bloom_filter) {
+    void Push(shared_ptr<BlockedBloomFilter> bloom_filter) {
         bloom_filters.emplace_back(bloom_filter);
     }
     
@@ -48,9 +48,9 @@ public:
         return dest_;
     }
 
-    vector<unique_ptr<Expression>> filters;
+    vector<Expression*> filters;
 
-    vector<shared_ptr<BloomFilter>> bloom_filters;
+    vector<shared_ptr<BlockedBloomFilter>> bloom_filters;
 
     idx_t dest_;
 };

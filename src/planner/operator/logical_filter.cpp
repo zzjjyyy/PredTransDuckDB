@@ -1,5 +1,6 @@
 #include "duckdb/planner/operator/logical_filter.hpp"
 #include "duckdb/planner/expression/bound_conjunction_expression.hpp"
+#include "duckdb/planner/operator/logical_get.hpp"
 
 namespace duckdb {
 
@@ -13,6 +14,24 @@ LogicalFilter::LogicalFilter() : LogicalOperator(LogicalOperatorType::LOGICAL_FI
 
 void LogicalFilter::ResolveTypes() {
 	types = MapTypes(children[0]->types, projection_map);
+}
+
+unique_ptr<LogicalOperator> LogicalFilter::FastCopy() {
+	/* LogicalFilter fields */
+	unique_ptr<LogicalFilter> result = make_uniq<LogicalFilter>();
+	
+	result->types = this->types;
+	result->estimated_cardinality = this->estimated_cardinality;
+	for (auto &child : this->expressions) {
+		result->expressions.push_back(child->Copy());
+	}
+	result->has_estimated_cardinality = this->has_estimated_cardinality;
+	for (auto &child : children) {
+		D_ASSERT(child->type == LogicalOperatorType::LOGICAL_GET);
+		LogicalGet &get = child->Cast<LogicalGet>();
+		result->children.emplace_back(get.FastCopy());
+	}
+	return unique_ptr_cast<LogicalFilter, LogicalOperator>(std::move(result));
 }
 
 vector<ColumnBinding> LogicalFilter::GetColumnBindings() {

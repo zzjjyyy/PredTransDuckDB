@@ -94,4 +94,17 @@ unique_ptr<TableFilter> IsNullFilter::Deserialize(Deserializer &deserializer) {
 	return std::move(result);
 }
 
+/*
+void BloomTableFilter::Serialize(Serializer &serializer) const {
+	TableFilter::Serialize(serializer);
+	serializer.WriteProperty(200, "bloom_filter_address", (void*)bloom_filter);
+}
+
+unique_ptr<TableFilter> BloomTableFilter::Deserialize(Deserializer &deserializer) {
+	BlockedBloomFilter* bloom_filter_addr;
+	deserializer.ReadProperty(200, "bloom_filter_address", bloom_filter_addr);
+	auto result = duckdb::unique_ptr<BloomTableFilter>(new BloomTableFilter(TableFilterType::BLOOM_FILTER, (BlockedBloomFilter*)bloom_filter_addr));
+	return std::move(result);
+}
+*/
 } // namespace duckdb

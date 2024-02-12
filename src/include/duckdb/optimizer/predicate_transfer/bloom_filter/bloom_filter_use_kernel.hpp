@@ -1,6 +1,7 @@
 #pragma once
 
 #include "duckdb/optimizer/predicate_transfer/bloom_filter/bloom_filter.hpp"
+#include "duckdb/common/types/vector.hpp"
 
 namespace duckdb {
 /**
@@ -12,7 +13,7 @@ public:
   // use vanilla bloom filter (reuse column indices made by the caller)
   static void
   filter(const Vector &result,
-         const std::shared_ptr<BloomFilter> &bloom_filter,
+         BlockedBloomFilter* bloom_filter,
          SelectionVector &sel,
          idx_t &approved_tuple_count,
          ValidityMask &mask);

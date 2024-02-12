@@ -18,14 +18,9 @@ vector<LogicalOperator*>& DAGManager::getSortedOrder() {
     return nodes_manager.getNodes();
 }
 
-void DAGManager::Add(idx_t in, idx_t out, shared_ptr<BloomFilter> bloom_filter) {
-    for(auto &node : nodes.nodes) {
-        if(node->Id() == in) {
-            node->AddOut(out, bloom_filter);
-        } else if(node->Id() == out) {
-            node->AddIn(in, bloom_filter);
-        }
-    }
+void DAGManager::Add(idx_t in, idx_t out, shared_ptr<BlockedBloomFilter> bloom_filter) {
+    nodes.nodes[in]->AddIn(out, bloom_filter);
+    nodes.nodes[out]->AddOut(in, bloom_filter);
 }
 
 void DAGManager::ExtractEdges(LogicalOperator &op,
@@ -40,7 +35,7 @@ void DAGManager::ExtractEdges(LogicalOperator &op,
 			D_ASSERT(join.expressions.empty());
 			for (auto &cond : join.conditions) {
 				auto comparison =
-				    make_uniq<BoundComparisonExpression>(cond.comparison, std::move(cond.left), std::move(cond.right));
+				    make_uniq<BoundComparisonExpression>(cond.comparison, cond.left->Copy(), cond.right->Copy());
 				if (filter_set.find(*comparison) == filter_set.end()) {
 					filter_set.insert(*comparison);
 					unordered_set<idx_t> left_bindings;
@@ -75,9 +70,9 @@ void DAGManager::CreateDAG() {
         auto in = filter_and_binding->in_.GetTableIndex()[0];
         auto out = filter_and_binding->out_.GetTableIndex()[0];
         // build in's out edge
-        nodes.nodes[in]->AddIn(out, std::move(filter_and_binding->filter));
+        nodes.nodes[in]->AddIn(out, filter_and_binding->filter.get());
         // build out's in edge
-        nodes.nodes[out]->AddOut(in, std::move(filter_and_binding->filter));
+        nodes.nodes[out]->AddOut(in, filter_and_binding->filter.get());
     }
 }
 }
