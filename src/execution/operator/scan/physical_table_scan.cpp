@@ -135,10 +135,8 @@ string PhysicalTableScan::ParamsToString() const {
 			auto &column_index = f.first;
 			auto &filter = f.second;
 			if (column_index < names.size()) {
-				if(filter != nullptr) {
-					result += filter->ToString(names[column_ids[column_index]]);
-					result += "\n";
-				}
+				result += filter->ToString(names[column_ids[column_index]]);
+				result += "\n";
 			}
 		}
 	}

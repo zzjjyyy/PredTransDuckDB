@@ -6,6 +6,9 @@ namespace duckdb {
 bool DAGManager::Build(LogicalOperator &plan) {
     vector<reference<LogicalOperator>> filter_operators;
     nodes_manager.ExtractNodes(plan, filter_operators);
+    if(nodes_manager.NumNodes() < 2) {
+        return false;
+    }
     nodes_manager.SortNodes();
     // extract the edges of the hypergraph, creating a list of filters and their associated bindings.
 	ExtractEdges(plan, filter_operators);
@@ -18,9 +21,11 @@ vector<LogicalOperator*>& DAGManager::getSortedOrder() {
     return nodes_manager.getNodes();
 }
 
-void DAGManager::Add(idx_t in, idx_t out, shared_ptr<BlockedBloomFilter> bloom_filter) {
-    nodes.nodes[in]->AddIn(out, bloom_filter);
-    nodes.nodes[out]->AddOut(in, bloom_filter);
+void DAGManager::Add(BlockedBloomFilter *out_bf, BlockedBloomFilter *in_bf) {
+    auto out = out_bf->GetCol().table_index;
+    auto in = in_bf->GetCol().table_index;
+    nodes.nodes[in]->AddIn(out, in_bf);
+    nodes.nodes[out]->AddOut(in, out_bf);
 }
 
 void DAGManager::ExtractEdges(LogicalOperator &op,
@@ -67,8 +72,18 @@ void DAGManager::CreateDAG() {
         nodes.nodes.emplace_back(std::move(node));
     }
     for (auto &filter_and_binding : filters_and_bindings_) {
-        auto in = filter_and_binding->in_.GetTableIndex()[0];
-        auto out = filter_and_binding->out_.GetTableIndex()[0];
+        idx_t in;
+        idx_t out;
+        if (filter_and_binding->in_.type == LogicalOperatorType::LOGICAL_GET) {
+            in = filter_and_binding->in_.GetTableIndex()[0];
+        } else if (filter_and_binding->in_.type == LogicalOperatorType::LOGICAL_FILTER) {
+            in = filter_and_binding->in_.children[0]->GetTableIndex()[0];
+        }
+        if (filter_and_binding->out_.type == LogicalOperatorType::LOGICAL_GET) {
+            out = filter_and_binding->out_.GetTableIndex()[0];
+        } else if (filter_and_binding->out_.type == LogicalOperatorType::LOGICAL_FILTER) {
+            out = filter_and_binding->out_.children[0]->GetTableIndex()[0];
+        }
         // build in's out edge
         nodes.nodes[in]->AddIn(out, filter_and_binding->filter.get());
         // build out's in edge

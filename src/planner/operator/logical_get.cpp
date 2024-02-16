@@ -64,7 +64,7 @@ unique_ptr<LogicalOperator> LogicalGet::FastCopy() {
 	result->column_ids.assign(column_ids.begin(), column_ids.end());
 	result->projection_ids.assign(projection_ids.begin(), projection_ids.end());
 	for (auto &child : table_filters.filters) {
-		result->table_filters.filters[child.first] = std::move(child.second);
+		result->table_filters.filters[child.first] = child.second->Copy();
 	}
 	result->parameters.assign(parameters.begin(), parameters.end());
 	result->named_parameters = named_parameters;

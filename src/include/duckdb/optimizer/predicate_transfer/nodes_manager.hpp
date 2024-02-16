@@ -40,8 +40,5 @@ private:
 	vector<LogicalOperator*> sort_nodes;
 
 	static int nodesCmp(LogicalOperator *a, LogicalOperator *b);
-
-	// table index maps to order index
-	unordered_map<idx_t, idx_t> nodes_mappings;
 };
 }

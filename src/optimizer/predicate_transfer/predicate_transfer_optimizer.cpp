@@ -1,4 +1,5 @@
 #include "duckdb/optimizer/predicate_transfer/predicate_transfer_optimizer.hpp"
+#include "duckdb/planner/operator/logical_filter.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
 #include "duckdb/planner/filter/bloom_table_filter.hpp"
 #include "duckdb/execution/physical_plan_generator.hpp"
@@ -9,34 +10,36 @@ namespace duckdb {
 unique_ptr<LogicalOperator> PredicateTransferOptimizer::Optimize(unique_ptr<LogicalOperator> plan,
                                                                  optional_ptr<RelationStats> stats) {
     bool success = dag_manager.Build(*plan); 
-
+	if(!success) {
+		return plan;
+	}
     auto &sorted_nodes = dag_manager.getSortedOrder();
 	// Forward
-	for(auto i = 0; i < sorted_nodes.size() ; i++) {
+	for(auto i = 0; i < sorted_nodes.size() - 1; i++) {
         auto current_node = sorted_nodes[i];
 		// We do predicate transfer in the function CreateBloomFilter
 		// query_graph_manager holds the input bloom filter
-		// return BF and its corresponding table id
-		vector<pair<idx_t, shared_ptr<BlockedBloomFilter>>> BFvec = CreateBloomFilter(*current_node, false);
+		// return current BF and neighbor BF
+		vector<pair<BlockedBloomFilter*, BlockedBloomFilter*>> BFvec = CreateBloomFilter(*current_node, false);
 		for (auto &BF : BFvec) {
 			// Add the Bloom Filter to its corresponding edge
 			// Need to check whether the Bloom Filter needs to transfer
 			// Such as, the column not involved in the predicate
-			dag_manager.Add(BF.first, current_node->GetTableIndex()[0], BF.second);
+			dag_manager.Add(BF.first, BF.second);
 		}
 	}
 	//Backward
-	for(int i = sorted_nodes.size() - 1; i >= 0; i--) {
+	for(int i = sorted_nodes.size() - 1; i > 0; i--) {
         auto &current_node = sorted_nodes[i];
 		// We do predicate transfer in the function CreateBloomFilter
 		// query_graph_manager holds the input bloom filter
 		// return BF and its corresponding table id
-		vector<pair<idx_t, shared_ptr<BlockedBloomFilter>>> BFvec = CreateBloomFilter(*current_node, true);
+		vector<pair<BlockedBloomFilter*, BlockedBloomFilter*>> BFvec = CreateBloomFilter(*current_node, true);
 		for (auto &BF : BFvec) {
 			// Add the Bloom Filter to its corresponding edge
 			// Need to check whether the Bloom Filter needs to transfer
 			// Such as, the column not involved in the predicate
-		 	dag_manager.Add(current_node->GetTableIndex()[0], BF.first, BF.second);
+		 	dag_manager.Add(BF.second, BF.first);
 		}
 	}
 	return plan;
@@ -53,49 +56,52 @@ void PredicateTransferOptimizer::GetColumnBindingExpression(Expression &expr, ve
 	}
 }
 
-vector<pair<idx_t, shared_ptr<BlockedBloomFilter>>> PredicateTransferOptimizer::CreateBloomFilter(LogicalOperator &node, bool reverse) {
-    vector<pair<idx_t, shared_ptr<BlockedBloomFilter>>> result;
-	idx_t cur = node.GetTableIndex()[0];
+/* Further to do, test filter operator */
+vector<pair<BlockedBloomFilter*, BlockedBloomFilter*>> PredicateTransferOptimizer::CreateBloomFilter(LogicalOperator &node, bool reverse) {
+    vector<pair<BlockedBloomFilter*, BlockedBloomFilter*>> result;
+	idx_t cur;
 	duckdb::vector<duckdb::idx_t> col_mapping;
 	if (node.type == LogicalOperatorType::LOGICAL_GET) {
 		auto &get = node.Cast<LogicalGet>();
 		col_mapping = get.column_ids;
+		cur = node.GetTableIndex()[0];
 	} else if (node.type == LogicalOperatorType::LOGICAL_FILTER) {
 		auto &get = node.children[0]->Cast<LogicalGet>();
 		col_mapping = get.column_ids;
+		cur = get.GetTableIndex()[0];
 	}
 	if(!reverse) {
 		for(auto &edge : dag_manager.nodes.nodes[cur]->in_) {
 			for(auto bloom_filter : edge->bloom_filters) {
-				if (node.type == LogicalOperatorType::LOGICAL_GET) {
-					auto &get = node.Cast<LogicalGet>();
-					get.table_filters.filters.clear();
-					auto bloom_table_filter = make_uniq<BloomTableFilter>(TableFilterType::BLOOM_FILTER, bloom_filter.get());	
-					get.table_filters.PushFilter(col_mapping[bloom_filter->GetCol().column_index], std::move(bloom_table_filter));
-				} else if(node.type == LogicalOperatorType::LOGICAL_FILTER) {
-					auto &get = node.children[0]->Cast<LogicalGet>();
-					get.table_filters.filters.clear();
-					auto bloom_table_filter = make_uniq<BloomTableFilter>(TableFilterType::BLOOM_FILTER, bloom_filter.get());
-					col_mapping = get.column_ids;
-					get.table_filters.PushFilter(col_mapping[bloom_filter->GetCol().column_index], std::move(bloom_table_filter));
+				if(!bloom_filter->isUsed())  {
+					bloom_filter->setUsed();
+					if (node.type == LogicalOperatorType::LOGICAL_GET) {
+						auto &get = node.Cast<LogicalGet>();
+						auto bloom_table_filter = make_uniq<BloomTableFilter>(TableFilterType::BLOOM_FILTER, bloom_filter);	
+						get.table_filters.PushFilter(col_mapping[bloom_filter->GetCol().column_index], std::move(bloom_table_filter));
+					} else if(node.type == LogicalOperatorType::LOGICAL_FILTER) {
+						auto &get = node.children[0]->Cast<LogicalGet>();
+						auto bloom_table_filter = make_uniq<BloomTableFilter>(TableFilterType::BLOOM_FILTER, bloom_filter);
+						get.table_filters.PushFilter(col_mapping[bloom_filter->GetCol().column_index], std::move(bloom_table_filter));
+					}
 				}
 			}
 		}
 	} else {
+		/* Further to do, remove the duplicate blooom filter */
 		for(auto &edge : dag_manager.nodes.nodes[cur]->out_) {
 			for(auto bloom_filter : edge->bloom_filters) {
-				if (node.type == LogicalOperatorType::LOGICAL_GET) {
-					auto &get = node.Cast<LogicalGet>();
-					get.table_filters.filters.clear();
-					auto bloom_table_filter = make_uniq<BloomTableFilter>(TableFilterType::BLOOM_FILTER, bloom_filter.get());
-					col_mapping = get.column_ids;
-					get.table_filters.PushFilter(col_mapping[bloom_filter->GetCol().column_index], std::move(bloom_table_filter));
-				} else if(node.type == LogicalOperatorType::LOGICAL_FILTER) {
-					auto &get = node.children[0]->Cast<LogicalGet>();
-					get.table_filters.filters.clear();
-					auto bloom_table_filter = make_uniq<BloomTableFilter>(TableFilterType::BLOOM_FILTER, bloom_filter.get());
-					col_mapping = get.column_ids;
-					get.table_filters.PushFilter(col_mapping[bloom_filter->GetCol().column_index], std::move(bloom_table_filter));
+				if(!bloom_filter->isUsed())  {
+					bloom_filter->setUsed();
+					if (node.type == LogicalOperatorType::LOGICAL_GET) {
+						auto &get = node.Cast<LogicalGet>();
+						auto bloom_table_filter = make_uniq<BloomTableFilter>(TableFilterType::BLOOM_FILTER, bloom_filter);
+						get.table_filters.PushFilter(col_mapping[bloom_filter->GetCol().column_index], std::move(bloom_table_filter));
+					} else if(node.type == LogicalOperatorType::LOGICAL_FILTER) {
+						auto &get = node.children[0]->Cast<LogicalGet>();
+						auto bloom_table_filter = make_uniq<BloomTableFilter>(TableFilterType::BLOOM_FILTER, bloom_filter);
+						get.table_filters.PushFilter(col_mapping[bloom_filter->GetCol().column_index], std::move(bloom_table_filter));
+					}
 				}
 			}
 		}
@@ -105,8 +111,8 @@ vector<pair<idx_t, shared_ptr<BlockedBloomFilter>>> PredicateTransferOptimizer::
 		auto &get = node.Cast<LogicalGet>();
 		node_copy = get.FastCopy();
 	} else if (node.type == LogicalOperatorType::LOGICAL_FILTER) {
-		auto &get = node.children[0]->Cast<LogicalGet>();
-		node_copy = get.FastCopy();
+		auto &filter = node.Cast<LogicalFilter>();
+		node_copy = filter.FastCopy();
 	}
 	// Create Bloom Filter
 	unordered_map<idx_t, BlockedBloomFilter*> temp_result;
@@ -181,14 +187,19 @@ vector<pair<idx_t, shared_ptr<BlockedBloomFilter>>> PredicateTransferOptimizer::
 			}
 		}
 		for(auto &filter : temp_builder) {
+			Vector hashes(LogicalType::HASH);
+			VectorOperations::Hash(data->data[filter.first], hashes, data->size());
+			/*
 			auto type = data->data[filter.first].GetType();
 			uint64_t* hashes = new uint64_t[data->size()];
+			// Meet trouble in debug mode: takes long time, high parallel or SIMD
 			for(auto r = 0; r < data->size(); r++) {
 				uint64_t hash = 0;
 				hash = data->GetValue(filter.first, r).Hash();
 				hashes[r] = hash;
 			}
-			filter.second->PushNextBatch(1, data->size(), hashes);
+			*/
+			filter.second->PushNextBatch(1, data->size(), (hash_t*)hashes.GetData());
 		}
 		data = executor->FetchChunk();
 		itr++;
@@ -196,17 +207,17 @@ vector<pair<idx_t, shared_ptr<BlockedBloomFilter>>> PredicateTransferOptimizer::
 	
 	// Create Bloom Table Filter at this table
 	for(auto pair : temp_result) {
-		if (node.type == LogicalOperatorType::LOGICAL_GET) {
-			auto &get = node.Cast<LogicalGet>();
-			auto bf = pair.second;
-			auto bloom_table_filter = make_uniq<BloomTableFilter>(TableFilterType::BLOOM_FILTER, bf);
-			get.table_filters.PushFilter(col_mapping[bf->GetCol().column_index], std::move(bloom_table_filter));
-		} else if(node.type == LogicalOperatorType::LOGICAL_FILTER) {
-			auto &get = node.children[0]->Cast<LogicalGet>();
-			auto bf = pair.second;
-			auto bloom_table_filter = make_uniq<BloomTableFilter>(TableFilterType::BLOOM_FILTER, bf);
-			get.table_filters.PushFilter(col_mapping[bf->GetCol().column_index], std::move(bloom_table_filter));
-			// node = get;
+		if(!pair.second->isUsed()) {
+			pair.second->setUsed();
+			if (node.type == LogicalOperatorType::LOGICAL_GET) {
+				auto &get = node.Cast<LogicalGet>();
+				auto bf = pair.second;
+				auto bloom_table_filter = make_uniq<BloomTableFilter>(TableFilterType::BLOOM_FILTER, bf);
+			} else if(node.type == LogicalOperatorType::LOGICAL_FILTER) {
+				auto &get = node.children[0]->Cast<LogicalGet>();
+				auto bf = pair.second;
+				auto bloom_table_filter = make_uniq<BloomTableFilter>(TableFilterType::BLOOM_FILTER, bf);
+			}
 		}
 	}
 
@@ -215,7 +226,7 @@ vector<pair<idx_t, shared_ptr<BlockedBloomFilter>>> PredicateTransferOptimizer::
 		auto bf = filter.second;
 		for(auto column_binding : this_to_next[bf->GetCol().column_index]) {
 			auto new_bf = bf->CopywithNewColBinding(column_binding);
-			result.emplace_back(make_pair(new_bf->GetCol().table_index, new_bf));
+			result.emplace_back(make_pair(bf, new_bf));
 		}
 	}
 

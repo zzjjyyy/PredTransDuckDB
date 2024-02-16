@@ -14,7 +14,7 @@ namespace duckdb {
         return;
     }
 
-    void DAGNode::AddIn(idx_t from, shared_ptr<BlockedBloomFilter> bloom_filter) {
+    void DAGNode::AddIn(idx_t from, BlockedBloomFilter *bloom_filter) {
         for (auto &node : in_) {
             if(node->GetDest() == from) {
                 node->Push(bloom_filter);
@@ -40,7 +40,7 @@ namespace duckdb {
         return;
     }
 
-    void DAGNode::AddOut(idx_t to, shared_ptr<BlockedBloomFilter> bloom_filter) {
+    void DAGNode::AddOut(idx_t to, BlockedBloomFilter *bloom_filter) {
         for (auto &node : out_) {
             if(node->GetDest() == to) {
                 node->Push(bloom_filter);

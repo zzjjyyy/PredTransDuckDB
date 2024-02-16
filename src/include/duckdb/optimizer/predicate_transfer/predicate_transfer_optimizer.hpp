@@ -17,6 +17,6 @@ private:
 
     void GetColumnBindingExpression(Expression &expr, vector<BoundColumnRefExpression*> &expressions);
 
-    vector<pair<idx_t, shared_ptr<BlockedBloomFilter>>> CreateBloomFilter(LogicalOperator &node, bool reverse);
+    vector<pair<BlockedBloomFilter*, BlockedBloomFilter*>> CreateBloomFilter(LogicalOperator &node, bool reverse);
 };
 }

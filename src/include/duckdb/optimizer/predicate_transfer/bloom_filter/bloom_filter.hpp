@@ -97,10 +97,11 @@ class BlockedBloomFilter {
 
 public:
   BlockedBloomFilter(ColumnBinding column_binding)
-    : column_binding_(column_binding), private_masks_(nullptr), log_num_blocks_(0), num_blocks_(0), blocks_(nullptr), use_64bit_hashes_(true) {}
-  BlockedBloomFilter(int log_num_blocks, bool use_64bit_hashes) :
-    log_num_blocks_(log_num_blocks), num_blocks_(1ULL << log_num_blocks_),
-    use_64bit_hashes_(use_64bit_hashes) {}
+    : column_binding_(column_binding), private_masks_(nullptr), log_num_blocks_(0), num_blocks_(0),
+    blocks_(nullptr), use_64bit_hashes_(true), Used_(false) {}
+  BlockedBloomFilter(ColumnBinding column_binding, int log_num_blocks, bool use_64bit_hashes) :
+    column_binding_(column_binding), log_num_blocks_(log_num_blocks), num_blocks_(1ULL << log_num_blocks_),
+    use_64bit_hashes_(use_64bit_hashes), Used_(false) {}
 
   inline bool Find(uint64_t hash) const {
     uint64_t m = mask(hash);
@@ -120,11 +121,10 @@ public:
     return column_binding_;
   }
 
-  shared_ptr<BlockedBloomFilter> CopywithNewColBinding(ColumnBinding column_binding) {
-    auto copy = make_shared<BlockedBloomFilter>(log_num_blocks_, use_64bit_hashes_);
+  BlockedBloomFilter* CopywithNewColBinding(ColumnBinding column_binding) {
+    auto copy = new BlockedBloomFilter(column_binding, log_num_blocks_, use_64bit_hashes_);
     copy->blocks_ = this->blocks_;
     copy->buf_ = this->buf_;
-    copy->column_binding_ = column_binding;
     copy->private_masks_ = this->private_masks_;
     return copy;
   }
@@ -163,6 +163,14 @@ public:
   // 1/2) range.
   //
   void Fold();
+
+  bool isUsed() {
+    return Used_;
+  }
+  
+  void setUsed() {
+    Used_ = true;
+  }
 
   // Num bits used per hash value
   static constexpr int64_t kMinNumBitsPerKey = 8;
@@ -253,6 +261,8 @@ private:
   // Pointer to mutable data owned by Buffer
   //
   uint64_t* blocks_;
+
+  bool Used_;
 };
 
 // We have two separate implementations of building a Bloom filter, multi-threaded and

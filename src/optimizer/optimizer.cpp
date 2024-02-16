@@ -121,7 +121,6 @@ unique_ptr<LogicalOperator> Optimizer::Optimize(unique_ptr<LogicalOperator> plan
 	});
 
 	// then we perform the join ordering optimization
-	// this also rewrites cross products + filters into joins and performs filter pushdowns
 	RunOptimizer(OptimizerType::PREDICATE_TRANSFER, [&]() {
 		PredicateTransferOptimizer optimizer(context);
 		plan = optimizer.Optimize(std::move(plan));

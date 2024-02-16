@@ -5,6 +5,14 @@ namespace duckdb {
 ConjunctionOrFilter::ConjunctionOrFilter() : ConjunctionFilter(TableFilterType::CONJUNCTION_OR) {
 }
 
+unique_ptr<TableFilter> ConjunctionOrFilter::Copy() {
+	unique_ptr<ConjunctionOrFilter> copy = make_uniq<ConjunctionOrFilter>();
+	for(auto &child : child_filters) {
+		copy->child_filters.emplace_back(child->Copy());
+	}
+	return unique_ptr_cast<ConjunctionOrFilter, TableFilter>(std::move(copy));
+}
+
 FilterPropagateResult ConjunctionOrFilter::CheckStatistics(BaseStatistics &stats) {
 	// the OR filter is true if ANY of the children is true
 	D_ASSERT(!child_filters.empty());
@@ -47,6 +55,14 @@ bool ConjunctionOrFilter::Equals(const TableFilter &other_p) const {
 }
 
 ConjunctionAndFilter::ConjunctionAndFilter() : ConjunctionFilter(TableFilterType::CONJUNCTION_AND) {
+}
+
+unique_ptr<TableFilter> ConjunctionAndFilter::Copy() {
+	unique_ptr<ConjunctionAndFilter> copy = make_uniq<ConjunctionAndFilter>();
+	for(auto &child : child_filters) {
+		copy->child_filters.emplace_back(child->Copy());
+	}
+	return unique_ptr_cast<ConjunctionAndFilter, TableFilter>(std::move(copy));
 }
 
 FilterPropagateResult ConjunctionAndFilter::CheckStatistics(BaseStatistics &stats) {

@@ -16,9 +16,18 @@ idx_t NodesManager::NumNodes() {
 }
 
 void NodesManager::AddNode(LogicalOperator *op, const RelationStats &stats) {
-	op->has_estimated_cardinality = true;
-	op->estimated_cardinality = stats.cardinality;
-    nodes[op->GetTableIndex()[0]] = op;
+	if(op->type == LogicalOperatorType::LOGICAL_GET) {
+		op->has_estimated_cardinality = true;
+		op->estimated_cardinality = stats.cardinality;
+		nodes[op->GetTableIndex()[0]] = op;
+	} else if (op->type == LogicalOperatorType::LOGICAL_FILTER) {
+		auto children = op->children[0].get();
+		children->has_estimated_cardinality = true;
+		children->estimated_cardinality = stats.cardinality;
+		op->has_estimated_cardinality = true;
+		op->estimated_cardinality = 0.1 * stats.cardinality;
+		nodes[children->GetTableIndex()[0]] = op;
+	}
     return;
 }
 
@@ -28,9 +37,6 @@ void NodesManager::SortNodes() {
 	}
 	sort(sort_nodes.begin(), sort_nodes.end(), NodesManager::nodesCmp);
     int idx = 0;
-    for(auto &node : sort_nodes) {
-        nodes_mappings[node->GetTableIndex()[0]] = idx++;
-    }
 }
 
 static bool OperatorNeedsRelation(LogicalOperatorType op_type) {

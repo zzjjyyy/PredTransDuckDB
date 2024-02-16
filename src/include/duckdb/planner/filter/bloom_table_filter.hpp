@@ -22,6 +22,8 @@ public:
 	BlockedBloomFilter* bloom_filter;
 
 public:
+	unique_ptr<TableFilter> Copy() override;
+	
 	virtual FilterPropagateResult CheckStatistics(BaseStatistics &stats) {
         return FilterPropagateResult::NO_PRUNING_POSSIBLE;
     }

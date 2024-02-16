@@ -17,11 +17,11 @@ public:
 
     void AddIn(idx_t from, Expression* filter);
 
-    void AddIn(idx_t from, shared_ptr<BlockedBloomFilter> bloom_filter);
+    void AddIn(idx_t from, BlockedBloomFilter *bloom_filter);
 
     void AddOut(idx_t to, Expression* filter);
 
-    void AddOut(idx_t to, shared_ptr<BlockedBloomFilter> bloom_filter);
+    void AddOut(idx_t to, BlockedBloomFilter *bloom_filter);
 
     vector<unique_ptr<DAGEdge>> in_;
 
@@ -40,7 +40,7 @@ public:
         filters.emplace_back(filter);
     }
 
-    void Push(shared_ptr<BlockedBloomFilter> bloom_filter) {
+    void Push(BlockedBloomFilter *bloom_filter) {
         bloom_filters.emplace_back(bloom_filter);
     }
     
@@ -50,7 +50,7 @@ public:
 
     vector<Expression*> filters;
 
-    vector<shared_ptr<BlockedBloomFilter>> bloom_filters;
+    vector<BlockedBloomFilter*> bloom_filters;
 
     idx_t dest_;
 };

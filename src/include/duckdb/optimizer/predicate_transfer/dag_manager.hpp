@@ -29,7 +29,7 @@ public:
 
     vector<LogicalOperator*>& getSortedOrder();
 
-    void Add(idx_t in, idx_t out, shared_ptr<BlockedBloomFilter> bloom_filter);
+    void Add(BlockedBloomFilter *out_bf, BlockedBloomFilter *in_bf);
 
     NodesManager nodes_manager;
 
