@@ -10,7 +10,11 @@ public:
 
     unique_ptr<LogicalOperator> Optimize(unique_ptr<LogicalOperator> plan, optional_ptr<RelationStats> stats = nullptr);
 
+    static LogicalGet& LogicalGetinFilter(LogicalOperator &op);
+
 private:
+    int table_num = 0;
+    
 	ClientContext &context;
 
     DAGManager dag_manager;

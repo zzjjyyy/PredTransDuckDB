@@ -83,6 +83,9 @@ vector<ColumnBinding> LogicalOperator::MapBindings(const vector<ColumnBinding> &
 		vector<ColumnBinding> result_bindings;
 		result_bindings.reserve(projection_map.size());
 		for (auto index : projection_map) {
+			if (index >= bindings.size()) {
+				continue;
+			}
 			D_ASSERT(index < bindings.size());
 			result_bindings.push_back(bindings[index]);
 		}

@@ -146,6 +146,9 @@ void BlockedBloomFilter::FindImp(int64_t num_rows, const T* hashes,
 
   for (int64_t i = num_processed; i < num_rows; ++i) {
     uint64_t result = Find(hashes[i]) ? 1ULL : 0ULL;
+    if (result == 1) {
+      int j = 0;
+    }
     bits |= result << (i & 63);
     if ((i & 63) == 63) {
       reinterpret_cast<uint64_t*>(result_bit_vector)[i / 64] = bits;

@@ -136,7 +136,11 @@ public:
   int NumHashBitsUsed() const;
 
   bool IsSameAs(const BlockedBloomFilter* other) const;
-
+  
+  bool isEmpty() {
+    return blocks_ == nullptr;
+  }
+  
   int64_t NumBitsSet() const;
 
   // Folding of a block Bloom filter after the initial version

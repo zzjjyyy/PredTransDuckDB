@@ -15,18 +15,27 @@ idx_t NodesManager::NumNodes() {
     return nodes.size();
 }
 
+LogicalGet& LogicalGetinFilter(LogicalOperator *op) {
+	if (op->children[0]->type == LogicalOperatorType::LOGICAL_GET) {
+		return op->children[0]->Cast<LogicalGet>();
+	} else if (op->children[0]->type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN) {
+		// For In-Clause optimization
+		return op->children[0]->children[0]->Cast<LogicalGet>();
+	}
+}
+
 void NodesManager::AddNode(LogicalOperator *op, const RelationStats &stats) {
 	if(op->type == LogicalOperatorType::LOGICAL_GET) {
 		op->has_estimated_cardinality = true;
 		op->estimated_cardinality = stats.cardinality;
 		nodes[op->GetTableIndex()[0]] = op;
 	} else if (op->type == LogicalOperatorType::LOGICAL_FILTER) {
-		auto children = op->children[0].get();
-		children->has_estimated_cardinality = true;
-		children->estimated_cardinality = stats.cardinality;
+		LogicalGet &children = LogicalGetinFilter(op);
+		children.has_estimated_cardinality = true;
+		children.estimated_cardinality = stats.cardinality;
 		op->has_estimated_cardinality = true;
 		op->estimated_cardinality = 0.1 * stats.cardinality;
-		nodes[children->GetTableIndex()[0]] = op;
+		nodes[children.GetTableIndex()[0]] = op;
 	}
     return;
 }
@@ -92,7 +101,7 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 			if (HasNonReorderableChild(*op)) {
 				datasource_filters.push_back(*op);
 			}
-			auto &get = op->children[0]->Cast<LogicalGet>();
+			auto &get = LogicalGetinFilter(op);
 			auto stats = RelationStatisticsHelper::ExtractGetStats(get, context);
 			AddNode(op, stats);
 			return;

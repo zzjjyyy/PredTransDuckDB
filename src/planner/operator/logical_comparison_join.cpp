@@ -19,5 +19,4 @@ string LogicalComparisonJoin::ParamsToString() const {
 
 	return result;
 }
-
 } // namespace duckdb

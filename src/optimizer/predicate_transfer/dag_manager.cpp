@@ -1,6 +1,8 @@
 #include "duckdb/optimizer/predicate_transfer/dag_manager.hpp"
 #include "duckdb/planner/operator/logical_comparison_join.hpp"
+#include "duckdb/planner/operator/logical_get.hpp"
 #include "duckdb/planner/expression/bound_comparison_expression.hpp"
+#include "duckdb/optimizer/predicate_transfer/predicate_transfer_optimizer.hpp"
 
 namespace duckdb {
 bool DAGManager::Build(LogicalOperator &plan) {
@@ -77,15 +79,17 @@ void DAGManager::CreateDAG() {
         if (filter_and_binding->in_.type == LogicalOperatorType::LOGICAL_GET) {
             in = filter_and_binding->in_.GetTableIndex()[0];
         } else if (filter_and_binding->in_.type == LogicalOperatorType::LOGICAL_FILTER) {
-            in = filter_and_binding->in_.children[0]->GetTableIndex()[0];
-        }
-        if (filter_and_binding->out_.type == LogicalOperatorType::LOGICAL_GET) {
-            out = filter_and_binding->out_.GetTableIndex()[0];
-        } else if (filter_and_binding->out_.type == LogicalOperatorType::LOGICAL_FILTER) {
-            out = filter_and_binding->out_.children[0]->GetTableIndex()[0];
+            LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(filter_and_binding->in_);
+            in = get.GetTableIndex()[0];
         }
         // build in's out edge
         nodes.nodes[in]->AddIn(out, filter_and_binding->filter.get());
+        if (filter_and_binding->out_.type == LogicalOperatorType::LOGICAL_GET) {
+            out = filter_and_binding->out_.GetTableIndex()[0];
+        } else if (filter_and_binding->out_.type == LogicalOperatorType::LOGICAL_FILTER) {
+            LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(filter_and_binding->out_);
+            out = get.GetTableIndex()[0];
+        }
         // build out's in edge
         nodes.nodes[out]->AddOut(in, filter_and_binding->filter.get());
     }
