@@ -37,7 +37,9 @@ void BloomFilterUseKernel::filter(const Vector &result,
 		}
     }
     delete[] result_bit_vector;
-
+    if(result_count == 0) {
+        result_count = 0;
+    }
     approved_tuple_count = result_count;
     sel.Initialize(new_sel);
     return;

@@ -12,12 +12,16 @@ public:
 
     static LogicalGet& LogicalGetinFilter(LogicalOperator &op);
 
+    unique_ptr<LogicalOperator> ReplaceScanOperator(unique_ptr<LogicalOperator> plan);
+
 private:
     int table_num = 0;
     
 	ClientContext &context;
 
     DAGManager dag_manager;
+
+    std::unordered_map<void*, unique_ptr<LogicalGet>> replace_map;
 
     void GetColumnBindingExpression(Expression &expr, vector<BoundColumnRefExpression*> &expressions);
 

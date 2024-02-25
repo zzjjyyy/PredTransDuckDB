@@ -109,13 +109,11 @@ unique_ptr<LogicalOperator> Optimizer::Optimize(unique_ptr<LogicalOperator> plan
 		plan = regex_opt.Rewrite(std::move(plan));
 	});
 
-	// then we perform the join ordering optimization
-	/*
+	// then we perform the predicate transfer optimization
 	RunOptimizer(OptimizerType::PREDICATE_TRANSFER, [&]() {
 		PredicateTransferOptimizer optimizer(context);
 		plan = optimizer.Optimize(std::move(plan));
 	});
-	*/
 
 	RunOptimizer(OptimizerType::IN_CLAUSE, [&]() {
 		InClauseRewriter ic_rewriter(context, *this);

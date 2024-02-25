@@ -82,14 +82,15 @@ void DAGManager::CreateDAG() {
             LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(filter_and_binding->in_);
             in = get.GetTableIndex()[0];
         }
-        // build in's out edge
-        nodes.nodes[in]->AddIn(out, filter_and_binding->filter.get());
         if (filter_and_binding->out_.type == LogicalOperatorType::LOGICAL_GET) {
             out = filter_and_binding->out_.GetTableIndex()[0];
         } else if (filter_and_binding->out_.type == LogicalOperatorType::LOGICAL_FILTER) {
             LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(filter_and_binding->out_);
             out = get.GetTableIndex()[0];
         }
+        // build in's out edge
+        nodes.nodes[in]->AddIn(out, filter_and_binding->filter.get());
+       
         // build out's in edge
         nodes.nodes[out]->AddOut(in, filter_and_binding->filter.get());
     }
