@@ -321,4 +321,99 @@ std::unique_ptr<BloomFilterBuilder> BloomFilterBuilder::Make(BloomFilterBuildStr
   return impl;
 }
 
+/*
+arrow::Status BloomFilterBuilder_Parallel::Begin(size_t num_threads, int64_t hardware_flags,
+                                                 arrow::MemoryPool* pool, int64_t num_rows,
+                                                 int64_t num_batches,
+                                                 BlockedBloomFilter* build_target) {
+  hardware_flags_ = hardware_flags;
+  build_target_ = build_target;
+
+  constexpr int kMaxLogNumPrtns = 8;
+  log_num_prtns_ = std::min(kMaxLogNumPrtns, arrow::bit_util::Log2(num_threads));
+
+  thread_local_states_.resize(num_threads);
+  prtn_locks_.Init(num_threads, 1 << log_num_prtns_);
+
+  RETURN_NOT_OK(build_target->CreateEmpty(num_rows, pool));
+
+  return arrow::Status::OK();
+}
+
+arrow::Status BloomFilterBuilder_Parallel::PushNextBatch(size_t thread_id, int64_t num_rows,
+                                                  const uint32_t* hashes) {
+  PushNextBatchImp(thread_id, num_rows, hashes);
+  return arrow::Status::OK();
+}
+
+arrow::Status BloomFilterBuilder_Parallel::PushNextBatch(size_t thread_id, int64_t num_rows,
+                                                  const uint64_t* hashes) {
+  PushNextBatchImp(thread_id, num_rows, hashes);
+  return arrow::Status::OK();
+}
+
+template <typename T>
+void BloomFilterBuilder_Parallel::PushNextBatchImp(size_t thread_id, int64_t num_rows,
+                                                   const T* hashes) {
+  // Partition IDs are calculated using the higher bits of the block ID.  This
+  // ensures that each block is contained entirely within a partition and prevents
+  // concurrent access to a block.
+  constexpr int kLogBlocksKeptTogether = 7;
+  constexpr int kPrtnIdBitOffset =
+      BloomFilterMasks::kLogNumMasks + 6 + kLogBlocksKeptTogether;
+
+  const int log_num_prtns_max =
+      std::max(0, build_target_->log_num_blocks() - kLogBlocksKeptTogether);
+  const int log_num_prtns_mod = std::min(log_num_prtns_, log_num_prtns_max);
+  int num_prtns = 1 << log_num_prtns_mod;
+
+  ThreadLocalState& local_state = thread_local_states_[thread_id];
+  local_state.partition_ranges.resize(num_prtns + 1);
+  local_state.partitioned_hashes_64.resize(num_rows);
+  local_state.unprocessed_partition_ids.resize(num_prtns);
+  uint16_t* partition_ranges = local_state.partition_ranges.data();
+  uint64_t* partitioned_hashes = local_state.partitioned_hashes_64.data();
+  int* unprocessed_partition_ids = local_state.unprocessed_partition_ids.data();
+
+  arrow::acero::PartitionSort::Eval(
+      num_rows, num_prtns, partition_ranges,
+      [=](int64_t row_id) {
+        return (hashes[row_id] >> (kPrtnIdBitOffset)) & (num_prtns - 1);
+      },
+      [=](int64_t row_id, int output_pos) {
+        partitioned_hashes[output_pos] = hashes[row_id];
+      });
+
+  int num_unprocessed_partitions = 0;
+  for (int i = 0; i < num_prtns; ++i) {
+    bool is_prtn_empty = (partition_ranges[i + 1] == partition_ranges[i]);
+    if (!is_prtn_empty) {
+      unprocessed_partition_ids[num_unprocessed_partitions++] = i;
+    }
+  }
+  while (num_unprocessed_partitions > 0) {
+    int locked_prtn_id;
+    int locked_prtn_id_pos;
+    prtn_locks_.AcquirePartitionLock(thread_id, num_unprocessed_partitions,
+                                     unprocessed_partition_ids,
+                                     false, -1,
+                                     &locked_prtn_id, &locked_prtn_id_pos);
+    build_target_->Insert(
+        hardware_flags_,
+        partition_ranges[locked_prtn_id + 1] - partition_ranges[locked_prtn_id],
+        partitioned_hashes + partition_ranges[locked_prtn_id]);
+    prtn_locks_.ReleasePartitionLock(locked_prtn_id);
+    if (locked_prtn_id_pos < num_unprocessed_partitions - 1) {
+      unprocessed_partition_ids[locked_prtn_id_pos] =
+          unprocessed_partition_ids[num_unprocessed_partitions - 1];
+    }
+    --num_unprocessed_partitions;
+  }
+}
+
+void BloomFilterBuilder_Parallel::CleanUp() {
+  thread_local_states_.clear();
+  prtn_locks_.CleanUp();
+}
+*/
 }

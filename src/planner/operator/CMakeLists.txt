@@ -8,6 +8,7 @@ add_library_unity(
   logical_copy_to_file.cpp
   logical_copy_database.cpp
   logical_create.cpp
+  logical_create_bf.cpp
   logical_create_index.cpp
   logical_create_table.cpp
   logical_cross_product.cpp

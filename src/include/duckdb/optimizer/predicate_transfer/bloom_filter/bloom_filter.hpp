@@ -4,7 +4,6 @@
 #include <cstdint>
 #include <memory>
 
-#include "arrow/acero/partition_util.h"
 #include "arrow/acero/util.h"
 #include "arrow/memory_pool.h"
 #include "arrow/result.h"
@@ -186,18 +185,18 @@ public:
   static constexpr int64_t kNumBitsBlocksUsedBy32Bit = 32 - (BloomFilterMasks::kLogNumMasks + 6);
   static constexpr int64_t kNumBlocksUsedBy32Bit = 1 << kNumBitsBlocksUsedBy32Bit;
   static constexpr int64_t kMaxNumRowsFor32Bit = kNumBlocksUsedBy32Bit * 64 / kMinNumBitsPerKey;
-
-private:
+  
   arrow::Status CreateEmpty(int64_t num_rows_to_insert, arrow::MemoryPool* pool);
 
+  void Insert(int64_t hardware_flags, int64_t num_rows, const uint32_t* hashes);
+  void Insert(int64_t hardware_flags, int64_t num_rows, const uint64_t* hashes);
+
+private:
   inline void Insert(uint64_t hash) {
     uint64_t m = mask(hash);
     uint64_t& b = blocks_[block_id(hash)];
     b |= m;
   }
-
-  void Insert(int64_t hardware_flags, int64_t num_rows, const uint32_t* hashes);
-  void Insert(int64_t hardware_flags, int64_t num_rows, const uint64_t* hashes);
 
   inline uint64_t mask(uint64_t hash) const {
     // The lowest bits of hash are used to pick mask index.
@@ -318,4 +317,37 @@ private:
   int64_t hardware_flags_;
   BlockedBloomFilter* build_target_;
 };
+
+/*
+class ARROW_ACERO_EXPORT BloomFilterBuilder_Parallel : public BloomFilterBuilder {
+ public:
+  arrow::Status Begin(size_t num_threads, int64_t hardware_flags, arrow::MemoryPool* pool,
+                      int64_t num_rows, int64_t num_batches,
+                      BlockedBloomFilter* build_target) override;
+
+  arrow::Status PushNextBatch(size_t thread_id, int64_t num_rows,
+                              const uint32_t* hashes) override;
+
+  arrow::Status PushNextBatch(size_t thread_id, int64_t num_rows,
+                              const uint64_t* hashes) override;
+
+  void CleanUp() override;
+
+ private:
+  template <typename T>
+  void PushNextBatchImp(size_t thread_id, int64_t num_rows, const T* hashes);
+
+  int64_t hardware_flags_;
+  BlockedBloomFilter* build_target_;
+  int log_num_prtns_;
+  struct ThreadLocalState {
+    std::vector<uint32_t> partitioned_hashes_32;
+    std::vector<uint64_t> partitioned_hashes_64;
+    std::vector<uint16_t> partition_ranges;
+    std::vector<int> unprocessed_partition_ids;
+  };
+  std::vector<ThreadLocalState> thread_local_states_;
+  arrow::acero::PartitionLocks prtn_locks_;
+};
+*/
 }

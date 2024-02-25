@@ -1,6 +1,7 @@
 #include "duckdb/optimizer/predicate_transfer/predicate_transfer_optimizer.hpp"
 #include "duckdb/planner/operator/logical_filter.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
+#include "duckdb/planner/operator/logical_create_bf.hpp"
 #include "duckdb/planner/filter/bloom_table_filter.hpp"
 #include "duckdb/execution/physical_plan_generator.hpp"
 #include "duckdb/planner/expression/bound_columnref_expression.hpp"
@@ -158,86 +159,6 @@ vector<pair<BlockedBloomFilter*, BlockedBloomFilter*>> PredicateTransferOptimize
 		}
 	}
 	
-	unique_ptr<LogicalOperator> node_copy;
-	if (node.type == LogicalOperatorType::LOGICAL_GET) {
-		auto &get = node.Cast<LogicalGet>();
-		node_copy = get.FastCopy();
-	} else if (node.type == LogicalOperatorType::LOGICAL_FILTER) {
-		auto &filter = node.Cast<LogicalFilter>();
-		node_copy = filter.FastCopy();
-	}
-
-	/* Create CreateLogicalTable */
-	auto name = "temp" + std::to_string(table_num++);
-	auto create_info = make_uniq<CreateTableInfo>("temp", "main", name);
-	create_info->internal = false;
-	create_info->temporary = true;
-	idx_t size = cur_col_binding.size();
-	if (node.type == LogicalOperatorType::LOGICAL_GET) {
-		auto &get = node.Cast<LogicalGet>();
-		auto &list = get.bind_data->Cast<TableScanBindData>().table.GetColumns();
-		for (idx_t i = 0; i < size; i++) {
-			auto &col = list.GetColumn(LogicalIndex(col_mapping[cur_col_binding[i].column_index]));
-			create_info->columns.AddColumn(col.Copy());
-		}
-	} else if (node.type == LogicalOperatorType::LOGICAL_FILTER) {
-		auto &get = LogicalGetinFilter(node);
-		auto &list = get.bind_data->Cast<TableScanBindData>().table.GetColumns();
-		for (idx_t i = 0; i < size; i++) {
-			auto &col = list.GetColumn(LogicalIndex(col_mapping[cur_col_binding[i].column_index]));
-			create_info->columns.AddColumn(col.Copy());
-		}
-	}
-	auto &entry = Catalog::GetSchema(context, create_info->catalog, create_info->schema);
-	auto bound_create_info = make_uniq<BoundCreateTableInfo>(entry, std::move(create_info));
-	auto create_temp = make_uniq<LogicalCreateTable>(entry, std::move(bound_create_info));
-	
-	/* Create LogicalProjection */
-	/*
-	vector<unique_ptr<Expression>> select_list;
-	
-	select_list.reserve(size);
-	select_list.resize(size);
-	vector<idx_t> physical_id_order = col_mapping;
-	std::sort(physical_id_order.begin(), physical_id_order.end());
-	for(idx_t i = 0; i < size; ++i) {
-		idx_t physical_id = col_mapping[cur_col_binding[i].column_index];
-		idx_t select_id;
-		for (select_id = 0; select_id < size; ++select_id) {
-			if (physical_id_order[select_id] == physical_id) {
-				break;
-			}
-		}
-		auto new_expr = make_uniq<BoundColumnRefExpression>(cur_types[physical_id], cur_col_binding[i]);
-		select_list[select_id] = std::move(new_expr);
-	}
-	auto project = make_uniq<LogicalProjection>(cur + 1, std::move(select_list));
-	*/
-	/* Add their children */
-	// project->children.emplace_back(std::move(node_copy));
-	create_temp->children.emplace_back(std::move(node_copy));
-	
-	PhysicalPlanGenerator create_physical_planner(this->context);
-	auto create_physical_plan = create_physical_planner.CreatePlan(std::move(create_temp));
-	auto create_executor = make_uniq<Executor>(this->context);
-	create_executor->Initialize(std::move(create_physical_plan));
-	try {
-		PendingExecutionResult flag;
-		do {
-			flag = create_executor->ExecuteTask();
-		} while(flag != PendingExecutionResult::EXECUTION_ERROR
-			 && flag != PendingExecutionResult::RESULT_READY);
-	} catch (FatalException &ex) {
-		throw ex;
-	} catch (const Exception &ex) {
-		throw ex;
-	} catch (std::exception &ex) {
-		throw ex;
-	} catch (...) { // LCOV_EXCL_START
-		throw InternalException("Unhandled exception in CreateBloomFilter");
-	} // LCOV_EXCL_STOP
-	create_executor->CancelTasks();
-
 	// Create Bloom Filter
 	unordered_map<idx_t, BlockedBloomFilter*> temp_result;
 	// this table's col_id to next tables' columnbinding
@@ -294,6 +215,68 @@ vector<pair<BlockedBloomFilter*, BlockedBloomFilter*>> PredicateTransferOptimize
 		}
 	}
 
+	unique_ptr<LogicalOperator> node_copy;
+	if (node.type == LogicalOperatorType::LOGICAL_GET) {
+		auto &get = node.Cast<LogicalGet>();
+		node_copy = get.FastCopy();
+	} else if (node.type == LogicalOperatorType::LOGICAL_FILTER) {
+		auto &filter = node.Cast<LogicalFilter>();
+		node_copy = filter.FastCopy();
+	}
+
+	/* Create CreateLogicalTable */
+	auto name = "temp" + std::to_string(table_num++);
+	auto create_info = make_uniq<CreateTableInfo>("temp", "main", name);
+	create_info->internal = false;
+	create_info->temporary = true;
+	idx_t size = cur_col_binding.size();
+	if (node.type == LogicalOperatorType::LOGICAL_GET) {
+		auto &get = node.Cast<LogicalGet>();
+		auto &list = get.bind_data->Cast<TableScanBindData>().table.GetColumns();
+		for (idx_t i = 0; i < size; i++) {
+			auto &col = list.GetColumn(LogicalIndex(col_mapping[cur_col_binding[i].column_index]));
+			create_info->columns.AddColumn(col.Copy());
+		}
+	} else if (node.type == LogicalOperatorType::LOGICAL_FILTER) {
+		auto &get = LogicalGetinFilter(node);
+		auto &list = get.bind_data->Cast<TableScanBindData>().table.GetColumns();
+		for (idx_t i = 0; i < size; i++) {
+			auto &col = list.GetColumn(LogicalIndex(col_mapping[cur_col_binding[i].column_index]));
+			create_info->columns.AddColumn(col.Copy());
+		}
+	}
+	auto &entry = Catalog::GetSchema(context, create_info->catalog, create_info->schema);
+	auto bound_create_info = make_uniq<BoundCreateTableInfo>(entry, std::move(create_info));
+	auto create_temp = make_uniq<LogicalCreateTable>(entry, std::move(bound_create_info));
+	
+	/* Create LogicalCreateBF */
+	auto create_bf = make_uniq<LogicalCreateBF>(temp_result);
+
+	/* Add their children */
+	create_bf->children.emplace_back(std::move(node_copy));
+	create_temp->children.emplace_back(std::move(create_bf));
+	
+	PhysicalPlanGenerator create_physical_planner(this->context);
+	auto create_physical_plan = create_physical_planner.CreatePlan(std::move(create_temp));
+	auto create_executor = make_uniq<Executor>(this->context);
+	create_executor->Initialize(std::move(create_physical_plan));
+	try {
+		PendingExecutionResult flag;
+		do {
+			flag = create_executor->ExecuteTask();
+		} while(flag != PendingExecutionResult::EXECUTION_ERROR
+			 && flag != PendingExecutionResult::RESULT_READY);
+	} catch (FatalException &ex) {
+		throw ex;
+	} catch (const Exception &ex) {
+		throw ex;
+	} catch (std::exception &ex) {
+		throw ex;
+	} catch (...) { // LCOV_EXCL_START
+		throw InternalException("Unhandled exception in CreateBloomFilter");
+	} // LCOV_EXCL_STOP
+	create_executor->CancelTasks();
+
 	auto table_entry = Catalog::GetEntry(this->context, CatalogType::TABLE_ENTRY, "", "", name, OnEntryNotFound::RETURN_NULL);
 	unique_ptr<TableScanBindData> tmp_bind_data = make_uniq<TableScanBindData>(table_entry->Cast<DuckTableEntry>());
 	unique_ptr<LogicalGet> new_logical_get;
@@ -326,19 +309,11 @@ vector<pair<BlockedBloomFilter*, BlockedBloomFilter*>> PredicateTransferOptimize
 			new_logical_get->column_ids.emplace_back(i);
 		}
 	}
-	unique_ptr<LogicalOperator> new_node_copy = new_logical_get->FastCopy();
+	// unique_ptr<LogicalOperator> new_node_copy = new_logical_get->FastCopy();
 	replace_map[&node] = std::move(new_logical_get);
-	/*
-	if (node.type == LogicalOperatorType::LOGICAL_GET) {
-		auto &get = node.Cast<LogicalGet>();
-		new_node_copy = get.FastCopy();
-	} else if (node.type == LogicalOperatorType::LOGICAL_FILTER) {
-		auto &filter = node.Cast<LogicalFilter>();
-		new_node_copy = filter.FastCopy();
-	}
-	*/
 
 	// Start Physical Plan
+	/*
 	PhysicalPlanGenerator physical_planner(this->context);
 	auto physical_plan = physical_planner.CreatePlan(std::move(new_node_copy));
 	auto executor = make_uniq<Executor>(this->context);
@@ -365,17 +340,13 @@ vector<pair<BlockedBloomFilter*, BlockedBloomFilter*>> PredicateTransferOptimize
 		throw ex;
 	} catch (std::exception &ex) {
 		throw ex;
-	} catch (...) { // LCOV_EXCL_START
+	} catch (...) {
 		throw InternalException("Unhandled exception in CreateBloomFilter");
-	} // LCOV_EXCL_STOP
+	}
 	auto query_result = executor->GetResult();
 	executor->CancelTasks();
 	auto data = query_result->Fetch();
-	/*
-	executor->Initialize(std::move(physical_plan));
-	auto flag = executor->ExecuteTask();
-	auto data = executor->FetchChunk();
-	*/
+
 	int itr = 0;
 	unordered_map<idx_t, shared_ptr<BloomFilterBuilder_SingleThreaded>> temp_builder;
 	while (data != nullptr) {
@@ -395,32 +366,7 @@ vector<pair<BlockedBloomFilter*, BlockedBloomFilter*>> PredicateTransferOptimize
 		data = query_result->Fetch();
 		itr++;
 	}
-	
-	// Create Bloom Table Filter at this table
-	/*
-	for(auto pair : temp_result) {
-		if(!pair.second->isUsed()) {
-			pair.second->setUsed();
-			if (node.type == LogicalOperatorType::LOGICAL_GET) {
-				auto &get = node.Cast<LogicalGet>();
-				auto bf = pair.second;
-				auto bloom_table_filter = make_uniq<BloomTableFilter>(TableFilterType::BLOOM_FILTER, bf);
-			} else if(node.type == LogicalOperatorType::LOGICAL_FILTER) {
-				auto &get = node.children[0]->Cast<LogicalGet>();
-				auto bf = pair.second;
-				auto bloom_table_filter = make_uniq<BloomTableFilter>(TableFilterType::BLOOM_FILTER, bf);
-			}
-			// The new-created bloom filter of LogicalGet is redundant, so we do not push it
-			if(node.type == LogicalOperatorType::LOGICAL_FILTER) {
-				auto &get = node.children[0]->Cast<LogicalGet>();
-				auto bf = pair.second;
-				auto bloom_table_filter = make_uniq<BloomTableFilter>(TableFilterType::BLOOM_FILTER, bf);
-				get.table_filters.PushFilter(col_mapping[bf->GetCol().column_index], std::move(bloom_table_filter));
-			}
-		}
-	}
 	*/
-
 	// Prepare bloom filter for next table
 	for(auto &filter : temp_result) {
 		auto bf = filter.second;

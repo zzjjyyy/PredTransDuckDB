@@ -19,6 +19,7 @@ class LogicalComparisonJoin;
 class LogicalCopyDatabase;
 class LogicalCopyToFile;
 class LogicalCreate;
+class LogicalCreateBF;
 class LogicalCreateTable;
 class LogicalCreateIndex;
 class LogicalCreateTable;

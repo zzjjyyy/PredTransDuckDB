@@ -5,6 +5,7 @@
 #include "duckdb/planner/operator/logical_copy_database.hpp"
 #include "duckdb/planner/operator/logical_copy_to_file.hpp"
 #include "duckdb/planner/operator/logical_create.hpp"
+#include "duckdb/planner/operator/logical_create_bf.hpp"
 #include "duckdb/planner/operator/logical_create_index.hpp"
 #include "duckdb/planner/operator/logical_create_table.hpp"
 #include "duckdb/planner/operator/logical_create_secret.hpp"
