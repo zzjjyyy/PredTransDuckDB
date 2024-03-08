@@ -27,7 +27,7 @@ void BloomFilterUseKernel::filter(const Vector &result,
     }
     */
     uint8_t* result_bit_vector = new uint8_t[row_nums / 8 + 1];
-    bloom_filter->Find(1, row_nums, (hash_t*)hashes.GetData(), result_bit_vector);
+    bloom_filter->Find(arrow::internal::CpuInfo::AVX2, row_nums, (hash_t*)hashes.GetData(), result_bit_vector);
     for (auto i = 0; i < approved_tuple_count; i++) {
         auto idx = sel.get_index(i);
         uint8_t result_byte = result_bit_vector[idx / 8];
@@ -37,9 +37,6 @@ void BloomFilterUseKernel::filter(const Vector &result,
 		}
     }
     delete[] result_bit_vector;
-    if(result_count == 0) {
-        result_count = 0;
-    }
     approved_tuple_count = result_count;
     sel.Initialize(new_sel);
     return;

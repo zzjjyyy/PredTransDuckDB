@@ -1,6 +1,7 @@
 add_library_unity(
   duckdb_bloom_filter
   OBJECT
+  bloom_filter_avx2.cpp
   bloom_filter_use_kernel.cpp
   bloom_filter.cpp
   universal_hash_function.cpp)

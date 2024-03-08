@@ -43,6 +43,8 @@
 #include "duckdb/transaction/transaction_manager.hpp"
 #include "duckdb/storage/data_table.hpp"
 
+#include <sys/resource.h>
+
 namespace duckdb {
 
 struct ActiveQueryContext {
@@ -794,7 +796,16 @@ unique_ptr<QueryResult> ClientContext::Query(unique_ptr<SQLStatement> statement,
 	return pending_query->Execute();
 }
 
+static struct rusage sBegin;  /* CPU time at start */
+
+/* Return the difference of two time_structs in seconds */
+static double timeDiff(struct timeval *pStart, struct timeval *pEnd){
+  return (pEnd->tv_usec - pStart->tv_usec)*0.000001 +
+         (double)(pEnd->tv_sec - pStart->tv_sec);
+}
+
 unique_ptr<QueryResult> ClientContext::Query(const string &query, bool allow_stream_result) {
+	getrusage(RUSAGE_SELF, &sBegin);
 	auto lock = LockContext();
 
 	PreservedError error;
@@ -842,6 +853,15 @@ unique_ptr<QueryResult> ClientContext::Query(const string &query, bool allow_str
 			last_result->next = std::move(current_result);
 			last_result = last_result->next.get();
 		}
+	}
+	struct rusage sEnd;
+	getrusage(RUSAGE_SELF, &sEnd);
+	FILE* fp = fopen("result.txt", "a+");
+	double usr = timeDiff(&sBegin.ru_utime, &sEnd.ru_utime);
+	double sys = timeDiff(&sBegin.ru_stime, &sEnd.ru_stime);
+	if(usr + sys > 0.01) {
+		fprintf(fp, "%f\n", usr + sys);
+		fclose(fp);
 	}
 	return result;
 }

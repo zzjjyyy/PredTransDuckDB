@@ -1,5 +1,7 @@
 #pragma once
 
+#include <immintrin.h>
+
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -229,6 +231,20 @@ private:
                       bool enable_prefetch) const;
 
   void SingleFold(int num_folds);
+
+  inline __m256i mask_avx2(__m256i hash) const;
+  inline __m256i block_id_avx2(__m256i hash) const;
+  int64_t Insert_avx2(int64_t num_rows, const uint32_t* hashes);
+  int64_t Insert_avx2(int64_t num_rows, const uint64_t* hashes);
+  template <typename T>
+  int64_t InsertImp_avx2(int64_t num_rows, const T* hashes);
+  int64_t Find_avx2(int64_t num_rows, const uint32_t* hashes,
+                    uint8_t* result_bit_vector) const;
+  int64_t Find_avx2(int64_t num_rows, const uint64_t* hashes,
+                    uint8_t* result_bit_vector) const;
+  template <typename T>
+  int64_t FindImp_avx2(int64_t num_rows, const T* hashes,
+                       uint8_t* result_bit_vector) const;
 
   bool UsePrefetch() const {
     return num_blocks_ * sizeof(uint64_t) > kPrefetchLimitBytes;

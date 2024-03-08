@@ -105,22 +105,18 @@ void BlockedBloomFilter::InsertImp(int64_t num_rows, const T* hashes) {
 void BlockedBloomFilter::Insert(int64_t hardware_flags, int64_t num_rows,
                                 const uint32_t* hashes) {
   int64_t num_processed = 0;
-#if defined(ARROW_HAVE_RUNTIME_AVX2)
   if (hardware_flags & arrow::internal::CpuInfo::AVX2) {
     num_processed = Insert_avx2(num_rows, hashes);
   }
-#endif
   InsertImp(num_rows - num_processed, hashes + num_processed);
 }
 
 void BlockedBloomFilter::Insert(int64_t hardware_flags, int64_t num_rows,
                                 const uint64_t* hashes) {
   int64_t num_processed = 0;
-#if defined(ARROW_HAVE_RUNTIME_AVX2)
   if (hardware_flags & arrow::internal::CpuInfo::AVX2) {
     num_processed = Insert_avx2(num_rows, hashes);
   }
-#endif
   InsertImp(num_rows - num_processed, hashes + num_processed);
 }
 
@@ -165,8 +161,6 @@ void BlockedBloomFilter::Find(int64_t hardware_flags, int64_t num_rows,
                               const uint32_t* hashes, uint8_t* result_bit_vector,
                               bool enable_prefetch) const {
   int64_t num_processed = 0;
-
-#if defined(ARROW_HAVE_RUNTIME_AVX2)
   if (!(enable_prefetch && UsePrefetch()) &&
       (hardware_flags & arrow::internal::CpuInfo::AVX2)) {
     num_processed = Find_avx2(num_rows, hashes, result_bit_vector);
@@ -175,8 +169,6 @@ void BlockedBloomFilter::Find(int64_t hardware_flags, int64_t num_rows,
     //
     num_processed -= (num_processed % 8);
   }
-#endif
-
   ARROW_DCHECK(num_processed % 8 == 0);
   FindImp(num_rows - num_processed, hashes + num_processed,
           result_bit_vector + num_processed / 8, enable_prefetch);
@@ -187,13 +179,11 @@ void BlockedBloomFilter::Find(int64_t hardware_flags, int64_t num_rows,
                               bool enable_prefetch) const {
   int64_t num_processed = 0;
 
-#if defined(ARROW_HAVE_RUNTIME_AVX2)
   if (!(enable_prefetch && UsePrefetch()) &&
       (hardware_flags & arrow::internal::CpuInfo::AVX2)) {
     num_processed = Find_avx2(num_rows, hashes, result_bit_vector);
     num_processed -= (num_processed % 8);
   }
-#endif
 
   ARROW_DCHECK(num_processed % 8 == 0);
   FindImp(num_rows - num_processed, hashes + num_processed,

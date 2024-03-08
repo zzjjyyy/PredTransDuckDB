@@ -38,7 +38,6 @@ void DAGManager::ExtractEdges(LogicalOperator &op,
         if (f_op.type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN ||
 		    f_op.type == LogicalOperatorType::LOGICAL_ASOF_JOIN) {
             auto &join = f_op.Cast<LogicalComparisonJoin>();
-			D_ASSERT(join.join_type == JoinType::INNER);
 			D_ASSERT(join.expressions.empty());
 			for (auto &cond : join.conditions) {
 				auto comparison =
@@ -54,12 +53,24 @@ void DAGManager::ExtractEdges(LogicalOperator &op,
                     idx_t right_binding = *right_bindings.begin();
                     auto left_node = nodes_manager.getNode(left_binding);
                     auto right_node = nodes_manager.getNode(right_binding);
-                    if (left_node->estimated_cardinality > right_node->estimated_cardinality) {
-                        auto filter_info = make_uniq<DAGEdgeInfo>(std::move(comparison), *left_node, *right_node);
-					    filters_and_bindings_.push_back(std::move(filter_info));
-                    } else {
-                        auto filter_info = make_uniq<DAGEdgeInfo>(std::move(comparison), *right_node, *left_node);
-					    filters_and_bindings_.push_back(std::move(filter_info));
+                    if (join.join_type == JoinType::INNER) {
+                        if (left_node->estimated_cardinality > right_node->estimated_cardinality) {
+                            auto filter_info = make_uniq<DAGEdgeInfo>(std::move(comparison), *left_node, *right_node);
+                            filters_and_bindings_.push_back(std::move(filter_info));
+                        } else {
+                            auto filter_info = make_uniq<DAGEdgeInfo>(std::move(comparison), *right_node, *left_node);
+                            filters_and_bindings_.push_back(std::move(filter_info));
+                        }
+                    } else if (join.join_type == JoinType::LEFT) {
+                        if (left_node->estimated_cardinality < right_node->estimated_cardinality) {
+                            auto filter_info = make_uniq<DAGEdgeInfo>(std::move(comparison), *right_node, *left_node);
+                            filters_and_bindings_.push_back(std::move(filter_info));
+                        }
+                    } else if (join.join_type == JoinType::RIGHT) {
+                        if (left_node->estimated_cardinality >= right_node->estimated_cardinality) {
+                            auto filter_info = make_uniq<DAGEdgeInfo>(std::move(comparison), *left_node, *right_node);
+                            filters_and_bindings_.push_back(std::move(filter_info));
+                        }
                     }
 				}
 			}

@@ -26,15 +26,13 @@ LogicalGet& LogicalGetinFilter(LogicalOperator *op) {
 
 void NodesManager::AddNode(LogicalOperator *op, const RelationStats &stats) {
 	if(op->type == LogicalOperatorType::LOGICAL_GET) {
-		op->has_estimated_cardinality = true;
 		op->estimated_cardinality = stats.cardinality;
 		nodes[op->GetTableIndex()[0]] = op;
 	} else if (op->type == LogicalOperatorType::LOGICAL_FILTER) {
 		LogicalGet &children = LogicalGetinFilter(op);
-		children.has_estimated_cardinality = true;
 		children.estimated_cardinality = stats.cardinality;
-		op->has_estimated_cardinality = true;
-		op->estimated_cardinality = 0.1 * stats.cardinality;
+		// op->estimated_cardinality = 0.1 * stats.cardinality;
+		op->estimated_cardinality = 0.01 * stats.cardinality;
 		nodes[children.GetTableIndex()[0]] = op;
 	}
     return;
@@ -98,51 +96,26 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 	vector<reference<LogicalOperator>> datasource_filters;
     while (op->children.size() == 1 && !OperatorNeedsRelation(op->type)) {
 		if (op->type == LogicalOperatorType::LOGICAL_FILTER) {
-			if (HasNonReorderableChild(*op)) {
-				datasource_filters.push_back(*op);
+			if (op->children[0]->type == LogicalOperatorType::LOGICAL_GET) {
+				auto &get = LogicalGetinFilter(op);
+				auto stats = RelationStatisticsHelper::ExtractGetStats(get, context);
+				AddNode(op, stats);
+				return;
+			} else {
+				ExtractNodes(*op->children[0], filter_operators);
+				return;
 			}
-			auto &get = LogicalGetinFilter(op);
-			auto stats = RelationStatisticsHelper::ExtractGetStats(get, context);
-			AddNode(op, stats);
-			return;
 		}
 		op = op->children[0].get();
-	}
-    bool non_reorderable_operation = false;
-	if (OperatorIsNonReorderable(op->type)) {
-		// set operation, optimize separately in children
-		non_reorderable_operation = true;
 	}
 
 	if (op->type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN) {
 		auto &join = op->Cast<LogicalComparisonJoin>();
-		if (join.join_type == JoinType::INNER) {
-			// extract join conditions from inner join
+		if (join.join_type == JoinType::INNER || join.join_type == JoinType::LEFT || join.join_type == JoinType::RIGHT) {
 			filter_operators.push_back(*op);
-		} else {
-			non_reorderable_operation = true;
 		}
 	}
-
-    if (non_reorderable_operation) {
-		vector<RelationStats> children_stats;
-		for (auto &child : op->children) {
-			auto stats = RelationStats();
-			PredicateTransferOptimizer optimizer(context);
-			child = optimizer.Optimize(std::move(child), &stats);
-			children_stats.push_back(stats);
-		}
-
-        auto combined_stats = RelationStatisticsHelper::CombineStatsOfNonReorderableOperator(*op, children_stats);
-	    if (!datasource_filters.empty()) {
-		    combined_stats.cardinality =
-			    (idx_t)MaxValue(combined_stats.cardinality * RelationStatisticsHelper::DEFAULT_SELECTIVITY, (double)1);
-	    }
-
-        AddNode(op, combined_stats);
-        return;
-    }
-    
+   
     switch (op->type) {
 	case LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY: {
 		// optimize children

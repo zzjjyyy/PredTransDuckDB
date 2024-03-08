@@ -117,6 +117,36 @@ vector<pair<BlockedBloomFilter*, BlockedBloomFilter*>> PredicateTransferOptimize
 			if (get.table_filters.filters.size() == 0) {
 				if (dag_manager.nodes.nodes[cur]->in_.size() == 0) {
 					return result;
+				} else {
+					bool directly_return = true;
+					for (auto &edge : dag_manager.nodes.nodes[cur]->in_) {
+						if (edge->bloom_filters.size() != 0) {
+							directly_return = false;
+							break;
+						}
+					}
+					if(directly_return) {
+						return result;
+					}
+				}
+			} 
+		} else if (node.type == LogicalOperatorType::LOGICAL_FILTER) {
+			if (dag_manager.nodes.nodes[cur]->in_.size() == 0) {
+				if (dag_manager.nodes.nodes[cur]->out_.size() == 0) {
+					return result;
+				}
+			} else {
+				bool directly_return = true;
+				for (auto &edge : dag_manager.nodes.nodes[cur]->in_) {
+					if (edge->bloom_filters.size() != 0) {
+						directly_return = false;
+						break;
+					}
+				}
+				if (directly_return) {
+					if (dag_manager.nodes.nodes[cur]->out_.size() == 0) {
+						return result;
+					}
 				}
 			}
 		}
