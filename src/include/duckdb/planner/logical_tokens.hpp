@@ -56,6 +56,7 @@ class LogicalReset;
 class LogicalTopN;
 class LogicalUnnest;
 class LogicalUpdate;
+class LogicalUseBF;
 class LogicalWindow;
 
 } // namespace duckdb

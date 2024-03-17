@@ -1,7 +1,7 @@
 #include "duckdb/planner/operator/logical_create_bf.hpp"
 
 namespace duckdb {
-LogicalCreateBF::LogicalCreateBF(std::unordered_map<duckdb::idx_t, duckdb::BlockedBloomFilter *> &bf) 
+LogicalCreateBF::LogicalCreateBF(std::unordered_map<duckdb::idx_t, vector<duckdb::BlockedBloomFilter*>> bf)
     : LogicalOperator(LogicalOperatorType::LOGICAL_CREATE_BF), bf_to_create(bf) {};
 
 void LogicalCreateBF::Serialize(Serializer &serializer) const {
@@ -24,5 +24,9 @@ void LogicalCreateBF::ResolveTypes() {
 
 vector<ColumnBinding> LogicalCreateBF::GetColumnBindings() {
 	return children[0]->GetColumnBindings();
+}
+
+void LogicalCreateBF::AddDownStreamCreateBF(LogicalCreateBF *op) {
+	related_create_bf.emplace_back(op);
 }
 }

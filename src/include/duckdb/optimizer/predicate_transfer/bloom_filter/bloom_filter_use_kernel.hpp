@@ -16,6 +16,6 @@ public:
          BlockedBloomFilter* bloom_filter,
          SelectionVector &sel,
          idx_t &approved_tuple_count,
-         ValidityMask &mask);
+         idx_t row_num);
 };
 }

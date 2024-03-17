@@ -29,7 +29,7 @@ public:
 
     vector<LogicalOperator*>& getSortedOrder();
 
-    void Add(BlockedBloomFilter *out_bf, BlockedBloomFilter *in_bf);
+    void Add(ColumnBinding create_table, BlockedBloomFilter *use_bf, bool reverse);
 
     NodesManager nodes_manager;
 

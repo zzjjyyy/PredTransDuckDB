@@ -26,13 +26,9 @@ LogicalGet& LogicalGetinFilter(LogicalOperator *op) {
 
 void NodesManager::AddNode(LogicalOperator *op, const RelationStats &stats) {
 	if(op->type == LogicalOperatorType::LOGICAL_GET) {
-		op->estimated_cardinality = stats.cardinality;
 		nodes[op->GetTableIndex()[0]] = op;
 	} else if (op->type == LogicalOperatorType::LOGICAL_FILTER) {
 		LogicalGet &children = LogicalGetinFilter(op);
-		children.estimated_cardinality = stats.cardinality;
-		// op->estimated_cardinality = 0.1 * stats.cardinality;
-		op->estimated_cardinality = 0.01 * stats.cardinality;
 		nodes[children.GetTableIndex()[0]] = op;
 	}
     return;
@@ -40,7 +36,7 @@ void NodesManager::AddNode(LogicalOperator *op, const RelationStats &stats) {
 
 void NodesManager::SortNodes() {
     for(auto &node : nodes) {
-		sort_nodes.emplace_back(std::move(node.second));
+		sort_nodes.emplace_back(node.second);
 	}
 	sort(sort_nodes.begin(), sort_nodes.end(), NodesManager::nodesCmp);
     int idx = 0;

@@ -19,7 +19,7 @@ public:
 	LogicalOperator* getNode(idx_t table_binding) {
 		auto itr = nodes.find(table_binding);
 		if(itr == nodes.end()) {
-			throw InternalException("table binding is ot found!");
+			throw InternalException("table binding is not found!");
 		} else {
 			return itr->second;
 		}

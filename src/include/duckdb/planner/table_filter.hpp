@@ -22,7 +22,6 @@ enum class TableFilterType : uint8_t {
 	IS_NOT_NULL = 2,
 	CONJUNCTION_OR = 3,
 	CONJUNCTION_AND = 4,
-	BLOOM_FILTER = 5,
 };
 
 //! TableFilter represents a filter pushed down into the table scan.

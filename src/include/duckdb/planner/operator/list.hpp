@@ -43,4 +43,5 @@
 #include "duckdb/planner/operator/logical_top_n.hpp"
 #include "duckdb/planner/operator/logical_unnest.hpp"
 #include "duckdb/planner/operator/logical_update.hpp"
+#include "duckdb/planner/operator/logical_use_bf.hpp"
 #include "duckdb/planner/operator/logical_window.hpp"

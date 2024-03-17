@@ -109,18 +109,13 @@ unique_ptr<LogicalOperator> Optimizer::Optimize(unique_ptr<LogicalOperator> plan
 		plan = regex_opt.Rewrite(std::move(plan));
 	});
 
-	/*
-	RunOptimizer(OptimizerType::PREDICATE_TRANSFER, [&]() {
-		PredicateTransferOptimizer optimizer(context);
-		plan = optimizer.Optimize(std::move(plan));
-	});
-	*/
-
 	// removes any redundant DelimGets/DelimJoins
 	RunOptimizer(OptimizerType::DELIMINATOR, [&]() {
 		Deliminator deliminator;
 		plan = deliminator.Optimize(std::move(plan));
 	});
+	// seed for tpch: 0, 1, 2, 4, 5, 6, 7, 9, 10
+	// srand(10);
 
 	// then we perform the join ordering optimization
 	// this also rewrites cross products + filters into joins and performs filter pushdowns

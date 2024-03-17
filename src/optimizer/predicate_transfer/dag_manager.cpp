@@ -23,15 +23,19 @@ vector<LogicalOperator*>& DAGManager::getSortedOrder() {
     return nodes_manager.getNodes();
 }
 
-void DAGManager::Add(BlockedBloomFilter *out_bf, BlockedBloomFilter *in_bf) {
-    auto out = out_bf->GetCol().table_index;
-    auto in = in_bf->GetCol().table_index;
-    nodes.nodes[in]->AddIn(out, in_bf);
-    nodes.nodes[out]->AddOut(in, out_bf);
+void DAGManager::Add(ColumnBinding create_table, BlockedBloomFilter *use_bf, bool reverse) {
+    if (!reverse) {
+        auto in = use_bf->GetCol().table_index;
+        nodes.nodes[in]->AddIn(create_table.table_index, use_bf);
+    } else {
+        auto out = use_bf->GetCol().table_index;
+        nodes.nodes[out]->AddOut(create_table.table_index, use_bf);
+    }
 }
 
 void DAGManager::ExtractEdges(LogicalOperator &op,
                               vector<reference<LogicalOperator>> &filter_operators) {
+    auto &sorted_nodes = nodes_manager.getNodes();
 	expression_set_t filter_set;
     for (auto &filter_op : filter_operators) {
 		auto &f_op = filter_op.get();
@@ -54,7 +58,21 @@ void DAGManager::ExtractEdges(LogicalOperator &op,
                     auto left_node = nodes_manager.getNode(left_binding);
                     auto right_node = nodes_manager.getNode(right_binding);
                     if (join.join_type == JoinType::INNER) {
-                        if (left_node->estimated_cardinality > right_node->estimated_cardinality) {
+                        idx_t left_node_in_order = 0;
+                        for (idx_t i = 0; i < sorted_nodes.size(); i++) {
+                            if(sorted_nodes[i] == left_node) {
+                                left_node_in_order = i;
+                                break;
+                            }
+                        }
+                        idx_t right_node_in_order = 0;
+                        for (idx_t i = 0; i < sorted_nodes.size(); i++) {
+                            if(sorted_nodes[i] == right_node) {
+                               right_node_in_order = i;
+                               break;
+                            }
+                        }
+                        if (left_node_in_order > right_node_in_order) {
                             auto filter_info = make_uniq<DAGEdgeInfo>(std::move(comparison), *left_node, *right_node);
                             filters_and_bindings_.push_back(std::move(filter_info));
                         } else {

@@ -188,6 +188,8 @@ public:
   static constexpr int64_t kNumBlocksUsedBy32Bit = 1 << kNumBitsBlocksUsedBy32Bit;
   static constexpr int64_t kMaxNumRowsFor32Bit = kNumBlocksUsedBy32Bit * 64 / kMinNumBitsPerKey;
   
+  idx_t Ref;
+
   arrow::Status CreateEmpty(int64_t num_rows_to_insert, arrow::MemoryPool* pool);
 
   void Insert(int64_t hardware_flags, int64_t num_rows, const uint32_t* hashes);

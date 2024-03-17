@@ -2,36 +2,169 @@
 #include "duckdb/parallel/thread_context.hpp"
 #include "duckdb/execution/expression_executor.hpp"
 #include "duckdb/parallel/task_scheduler.hpp"
+#include "duckdb/parallel/meta_pipeline.hpp"
+#include "duckdb/common/types/batched_data_collection.hpp"
 
 namespace duckdb {
-PhysicalCreateBF::PhysicalCreateBF(vector<LogicalType> types, unordered_map<idx_t, BlockedBloomFilter*> &bf, idx_t estimated_cardinality, idx_t num_threads)
-    : CachingPhysicalOperator(PhysicalOperatorType::CREATE_BF, std::move(types), estimated_cardinality), bf_to_create(bf) {
-        for (auto &filter : bf_to_create) {
+PhysicalCreateBF::PhysicalCreateBF(vector<LogicalType> types, unordered_map<idx_t, vector<BlockedBloomFilter*>> bf, idx_t estimated_cardinality)
+    : PhysicalOperator(PhysicalOperatorType::CREATE_BF, std::move(types), estimated_cardinality), bf_to_create(bf) {
+    for (auto &filter_vec : bf_to_create) {
+		for(auto &filter : filter_vec.second) {
 			auto builder = make_shared<BloomFilterBuilder_SingleThreaded>();
 			builder->Begin(1, arrow::internal::CpuInfo::AVX2, arrow::MemoryPool::CreateDefault().get(),
-						   this->estimated_cardinality, 1000, filter.second);
-			builders[filter.first] = builder;
+						this->estimated_cardinality, 1000, filter);
+			builders[filter_vec.first].emplace_back(builder);
 		}
-    };
+	}
+};
 
-unique_ptr<OperatorState> PhysicalCreateBF::GetOperatorState(ExecutionContext &context) const {
-	return make_uniq<CachingOperatorState>();
+//===--------------------------------------------------------------------===//
+// Sink
+//===--------------------------------------------------------------------===//
+class CreateBFGlobalState : public GlobalSinkState {
+public:
+	CreateBFGlobalState(ClientContext &context, const PhysicalCreateBF &op)
+		: data(context, op.types) {}
+
+	mutex glock;
+	// BatchedDataCollection data;
+	ColumnDataCollection data;
+};
+
+/*
+class CreateBFLocalState : public LocalSinkState {
+public:
+	CreateBFLocalState(ClientContext &context, const PhysicalCreateBF &op)
+		: data(context, op.types) {}
+
+	// BatchedDataCollection data;
+	ColumnDataCollection data;
+};
+*/
+
+SinkResultType PhysicalCreateBF::Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const {
+    // auto &state = input.local_state.Cast<CreateBFLocalState>();
+	auto &state = input.global_state.Cast<CreateBFGlobalState>();
+	for(auto &filter_builder_vec : builders) {
+		for(auto &filter_builder : filter_builder_vec.second) {
+			Vector hashes(LogicalType::HASH);
+			VectorOperations::Hash(chunk.data[filter_builder_vec.first], hashes, chunk.size());
+			filter_builder->PushNextBatch(arrow::internal::CpuInfo::AVX2, chunk.size(), (hash_t*)hashes.GetData());
+		}
+	}
+	// state.data.Append(chunk, state.partition_info.batch_index.GetIndex());
+	state.data.Append(chunk);
+	return SinkResultType::NEED_MORE_INPUT;
 }
 
-OperatorResultType PhysicalCreateBF::ExecuteInternal(ExecutionContext &context, DataChunk &input, DataChunk &chunk,
-                                                     GlobalOperatorState &gstate, OperatorState &state_p) const {
-	auto &state = state_p.Cast<OperatorState>();
-    for(auto &filter_builder : builders) {
-		Vector hashes(LogicalType::HASH);
-		VectorOperations::Hash(input.data[filter_builder.first], hashes, input.size());
-		filter_builder.second->PushNextBatch(arrow::internal::CpuInfo::AVX2, input.size(), (hash_t*)hashes.GetData());
+/*
+SinkCombineResultType PhysicalCreateBF::Combine(ExecutionContext &context,
+                                                OperatorSinkCombineInput &input) const {
+	auto &gstate = input.global_state.Cast<CreateBFGlobalState>();
+	auto &state = input.local_state.Cast<CreateBFLocalState>();
+
+	lock_guard<mutex> lock(gstate.glock);
+	for (auto &entry : state.data) {
+		gstate.data.emplace_back(std::move(entry));
 	}
-	chunk.Reference(input);
-	return OperatorResultType::NEED_MORE_INPUT;
+	state.data.clear();
+	return SinkCombineResultType::FINISHED;
+}
+*/
+
+/*
+unique_ptr<LocalSinkState> PhysicalCreateBF::GetLocalSinkState(ExecutionContext &context) const {
+	return make_uniq<CreateBFLocalState>(context.client, *this);
+}
+*/
+
+unique_ptr<GlobalSinkState> PhysicalCreateBF::GetGlobalSinkState(ClientContext &context) const {
+	return make_uniq<CreateBFGlobalState>(context, *this);
+}
+
+//===--------------------------------------------------------------------===//
+// Source
+//===--------------------------------------------------------------------===//
+class CreateBFSourceState : public GlobalSourceState {
+public:
+	CreateBFSourceState(const PhysicalCreateBF &op) {
+		current_offset = 0;
+		D_ASSERT(op.sink_state);
+		auto &gstate = op.sink_state->Cast<CreateBFGlobalState>();
+		gstate.data.InitializeScan(scan_state);
+	}
+
+	idx_t current_offset;
+	ColumnDataScanState scan_state;
+};
+
+unique_ptr<GlobalSourceState> PhysicalCreateBF::GetGlobalSourceState(ClientContext &context) const {
+	return make_uniq<CreateBFSourceState>(*this);
+}
+
+SourceResultType PhysicalCreateBF::GetData(ExecutionContext &context, DataChunk &chunk,
+                                           OperatorSourceInput &input) const {
+	auto &gstate = sink_state->Cast<CreateBFGlobalState>();
+	auto &state = input.global_state.Cast<CreateBFSourceState>();
+	if (!gstate.data.Scan(state.scan_state, chunk)) {
+		return SourceResultType::FINISHED;
+	}
+	return SourceResultType::HAVE_MORE_OUTPUT;
+	/* 
+	gstate.data.Scan(state.scan_state, chunk);
+	if (chunk.size() == 0) {
+		return SourceResultType::FINISHED;
+	}
+	return chunk.size() > 0 ? SourceResultType::HAVE_MORE_OUTPUT : SourceResultType::FINISHED;
+	*/
 }
 
 string PhysicalCreateBF::ParamsToString() const {
 	string result;
 	return result;
+}
+
+void PhysicalCreateBF::BuildPipelinesFromRelated(Pipeline &current, MetaPipeline &meta_pipeline) {
+	op_state.reset();
+
+	auto &state = meta_pipeline.GetState();
+	// operator is a sink, build a pipeline
+	D_ASSERT(children.size() == 1);
+
+	if (this_pipeline == nullptr) {
+		// we create a new pipeline starting from the child
+		auto &child_meta_pipeline = meta_pipeline.CreateChildMetaPipeline(current, *this);
+		this_pipeline = child_meta_pipeline.GetBasePipeline();
+		child_meta_pipeline.Build(*children[0]);
+	} else {
+		current.AddDependency(this_pipeline);
+	}
+}
+
+/* Add related createBF dependency */
+void PhysicalCreateBF::BuildPipelines(Pipeline &current, MetaPipeline &meta_pipeline) {
+	op_state.reset();
+
+	auto &state = meta_pipeline.GetState();
+	// operator is a sink, build a pipeline
+	sink_state.reset();
+	D_ASSERT(children.size() == 1);
+
+	// single operator: the operator becomes the data source of the current pipeline
+	state.SetPipelineSource(current, *this);
+	if (this_pipeline == nullptr) {
+		// we create a new pipeline starting from the child
+		auto &child_meta_pipeline = meta_pipeline.CreateChildMetaPipeline(current, *this);
+		this_pipeline = child_meta_pipeline.GetBasePipeline();
+		child_meta_pipeline.Build(*children[0]);
+		for(auto cell : related_create_bf) {
+			cell->BuildPipelinesFromRelated(*this_pipeline, child_meta_pipeline);
+		}
+	} else {
+		current.AddDependency(this_pipeline);
+		for(auto cell : related_create_bf) {
+			cell->BuildPipelinesFromRelated(*this_pipeline, meta_pipeline);
+		}
+	}
 }
 }

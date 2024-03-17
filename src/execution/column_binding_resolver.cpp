@@ -6,6 +6,8 @@
 #include "duckdb/planner/expression/bound_reference_expression.hpp"
 #include "duckdb/planner/operator/logical_any_join.hpp"
 #include "duckdb/planner/operator/logical_comparison_join.hpp"
+#include "duckdb/planner/operator/logical_use_bf.hpp"
+#include "duckdb/planner/operator/logical_create_bf.hpp"
 #include "duckdb/planner/operator/logical_create_index.hpp"
 #include "duckdb/planner/operator/logical_extension_operator.hpp"
 #include "duckdb/planner/operator/logical_insert.hpp"
@@ -127,6 +129,36 @@ void ColumnBindingResolver::VisitOperator(LogicalOperator &op) {
 			return;
 		}
 		break;
+	}
+	case LogicalOperatorType::LOGICAL_CREATE_BF: {
+		VisitOperatorChildren(op);
+		auto &create_bf = op.Cast<LogicalCreateBF>();
+		for (auto &bf_vec : create_bf.bf_to_create) {
+			for (idx_t i = 0; i < bindings.size(); i++) {
+				if (bf_vec.first == bindings[i].column_index) {
+					for(auto bf : bf_vec.second) {
+						create_bf.bf_to_create_bind[i].emplace_back(bf);
+					}
+					break;
+				}
+			}
+		}
+		bindings = op.GetColumnBindings();
+		return;
+	}
+	case LogicalOperatorType::LOGICAL_USE_BF: {
+		VisitOperatorChildren(op);
+		auto &use_bf = op.Cast<LogicalUseBF>();
+		for (auto bf : use_bf.bf_to_use) {
+			for (idx_t i = 0; i < bindings.size(); i++) {
+				if (bf->GetCol() == bindings[i]) {
+					bf->Ref = i;
+					break;
+				}
+			}
+		}
+		bindings = op.GetColumnBindings();
+		return;
 	}
 	case LogicalOperatorType::LOGICAL_EXTENSION_OPERATOR: {
 		auto &ext_op = op.Cast<LogicalExtensionOperator>();

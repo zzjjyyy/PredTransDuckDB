@@ -17,6 +17,7 @@
 #include "duckdb/catalog/dependency_list.hpp"
 #include "duckdb/common/unordered_map.hpp"
 #include "duckdb/common/unordered_set.hpp"
+#include "duckdb/execution/operator/persistent/physical_create_bf.hpp"
 
 namespace duckdb {
 class ClientContext;
@@ -82,6 +83,7 @@ protected:
 	unique_ptr<PhysicalOperator> CreatePlan(LogicalExplain &op);
 	unique_ptr<PhysicalOperator> CreatePlan(LogicalSetOperation &op);
 	unique_ptr<PhysicalOperator> CreatePlan(LogicalUpdate &op);
+	unique_ptr<PhysicalOperator> CreatePlan(LogicalUseBF &op);
 	unique_ptr<PhysicalOperator> CreatePlan(LogicalPrepare &expr);
 	unique_ptr<PhysicalOperator> CreatePlan(LogicalWindow &expr);
 	unique_ptr<PhysicalOperator> CreatePlan(LogicalExecute &op);
@@ -102,6 +104,7 @@ protected:
 	unique_ptr<PhysicalOperator> ExtractAggregateExpressions(unique_ptr<PhysicalOperator> child,
 	                                                         vector<unique_ptr<Expression>> &expressions,
 	                                                         vector<unique_ptr<Expression>> &groups);
+	PhysicalCreateBF* CreatePlanfromRelated(LogicalCreateBF &op);
 
 private:
 	bool PreserveInsertionOrder(PhysicalOperator &plan);

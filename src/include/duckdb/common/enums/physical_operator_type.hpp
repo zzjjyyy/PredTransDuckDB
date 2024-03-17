@@ -119,6 +119,7 @@ enum class PhysicalOperatorType : uint8_t {
 	// -----------------------------
 	CREATE_SECRET,
 	CREATE_BF,
+	USE_BF,
 };
 
 string PhysicalOperatorToString(PhysicalOperatorType type);

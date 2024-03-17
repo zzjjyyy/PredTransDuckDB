@@ -214,6 +214,9 @@ unique_ptr<PhysicalOperator> PhysicalPlanGenerator::CreatePlan(LogicalOperator &
 	case LogicalOperatorType::LOGICAL_CREATE_BF:
 		plan = CreatePlan(op.Cast<LogicalCreateBF>());
 		break;
+	case LogicalOperatorType::LOGICAL_USE_BF:
+		plan = CreatePlan(op.Cast<LogicalUseBF>());
+		break;
 	case LogicalOperatorType::LOGICAL_EXTENSION_OPERATOR:
 		plan = op.Cast<LogicalExtensionOperator>().CreatePlan(context, *this);
 

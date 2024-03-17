@@ -250,6 +250,7 @@ double CardinalityEstimator::EstimateCardinalityWithSet(JoinRelationSet &new_set
 		denom = 1;
 	}
 	auto result = numerator / denom;
+	// result = (double)(rand() % 100000) + 1.0;
 	auto new_entry = CardinalityHelper((double)result, 1);
 	relation_set_2_cardinality[new_set.ToString()] = new_entry;
 	return result;

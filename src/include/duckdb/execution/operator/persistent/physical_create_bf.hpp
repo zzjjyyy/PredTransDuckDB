@@ -4,31 +4,50 @@
 #include "duckdb/optimizer/predicate_transfer/bloom_filter/bloom_filter.hpp"
 
 namespace duckdb {
-class PhysicalCreateBF : public CachingPhysicalOperator {
+class PhysicalCreateBF : public PhysicalOperator {
 public:
 	static constexpr const PhysicalOperatorType TYPE = PhysicalOperatorType::CREATE_BF;
 
 public:
-    PhysicalCreateBF(vector<LogicalType> types, unordered_map<idx_t, BlockedBloomFilter*> &bf, idx_t estimated_cardinality, idx_t num_threads);
+    PhysicalCreateBF(vector<LogicalType> types, unordered_map<idx_t, vector<BlockedBloomFilter*>> bf, idx_t estimated_cardinality);
 
-    unordered_map<idx_t, BlockedBloomFilter*> &bf_to_create;
+    unordered_map<idx_t, vector<BlockedBloomFilter*>> bf_to_create;
+
+	vector<PhysicalCreateBF *> related_create_bf;
+
+	shared_ptr<Pipeline> this_pipeline;
 
 public:
-	unique_ptr<OperatorState> GetOperatorState(ExecutionContext &context) const override;
+	// Source interface
+	unique_ptr<GlobalSourceState> GetGlobalSourceState(ClientContext &context) const;
 
-	bool ParallelOperator() const override {
+	SourceResultType GetData(ExecutionContext &context, DataChunk &chunk, OperatorSourceInput &input) const override;
+
+	bool IsSource() const override {
+		return true;
+	}
+
+public:
+	// Sink interface
+	SinkResultType Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const override;
+	// SinkCombineResultType Combine(ExecutionContext &context, OperatorSinkCombineInput &input) const override;
+
+	// unique_ptr<LocalSinkState> GetLocalSinkState(ExecutionContext &context) const override;
+	unique_ptr<GlobalSinkState> GetGlobalSinkState(ClientContext &context) const override;
+
+	bool IsSink() const override {
 		return true;
 	}
 
 	string ParamsToString() const override;
 
-protected:
-	OperatorResultType ExecuteInternal(ExecutionContext &context, DataChunk &input, DataChunk &chunk,
-	                                   GlobalOperatorState &gstate, OperatorState &state) const override;
+	void BuildPipelines(Pipeline &current, MetaPipeline &meta_pipeline) override;
+
+	void BuildPipelinesFromRelated(Pipeline &current, MetaPipeline &meta_pipeline);
 
 private:
     idx_t counter = 0;
 
-    unordered_map<idx_t, shared_ptr<BloomFilterBuilder_SingleThreaded>> builders;
+    unordered_map<idx_t, vector<shared_ptr<BloomFilterBuilder_SingleThreaded>>> builders;
 };
 }

@@ -43,6 +43,7 @@ add_library_unity(
   plan_update.cpp
   plan_window.cpp
   plan_unnest.cpp
+  plan_use_bf.cpp
   plan_expression_get.cpp
   plan_recursive_cte.cpp
   plan_cte.cpp)
