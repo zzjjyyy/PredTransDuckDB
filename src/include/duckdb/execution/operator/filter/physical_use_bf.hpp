@@ -1,6 +1,7 @@
 #pragma once
 
 #include "duckdb/execution/physical_operator.hpp"
+#include "duckdb/execution/operator/persistent/physical_create_bf.hpp"
 #include "duckdb/optimizer/predicate_transfer/bloom_filter/bloom_filter.hpp"
 
 namespace duckdb {
@@ -13,6 +14,8 @@ public:
 
     vector<BlockedBloomFilter*> bf_to_use;
 
+	vector<PhysicalCreateBF *> related_create_bf;
+
 public:
 	/* Operator interface */
 	unique_ptr<OperatorState> GetOperatorState(ExecutionContext &context) const override;
@@ -22,6 +25,8 @@ public:
 	}
 
 	string ParamsToString() const override;
+
+	void BuildPipelines(Pipeline &current, MetaPipeline &meta_pipeline) override;
 
 protected:
 	OperatorResultType ExecuteInternal(ExecutionContext &context, DataChunk &input, DataChunk &chunk,

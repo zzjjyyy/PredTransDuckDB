@@ -16,19 +16,40 @@ public:
     unique_ptr<LogicalOperator> InsertCreateBFOperator(unique_ptr<LogicalOperator> plan);
 
     unique_ptr<LogicalOperator> InsertCreateBFOperator_d(unique_ptr<LogicalOperator> plan);
-private:
-    int table_num = 0;
-    
+private:   
 	ClientContext &context;
 
     DAGManager dag_manager;
 
-    std::unordered_map<void*, unique_ptr<LogicalCreateBF>> replace_map_forward;
+    std::unordered_map<void*, unique_ptr<LogicalOperator>> replace_map_forward;
 
-    std::unordered_map<void*, unique_ptr<LogicalCreateBF>> replace_map_backward;
+    std::unordered_map<void*, unique_ptr<LogicalOperator>> replace_map_backward;
 
     void GetColumnBindingExpression(Expression &expr, vector<BoundColumnRefExpression*> &expressions);
 
     vector<pair<ColumnBinding, BlockedBloomFilter*>> CreateBloomFilter(LogicalOperator &node, bool reverse);
+
+    idx_t GetNodeId(LogicalOperator &node, vector<LogicalType> &cur_types, vector<idx_t> &col_mapping);
+
+    void GetAllBFUsed(idx_t cur, vector<BlockedBloomFilter*> &temp_result_to_use, vector<idx_t> &depend_nodes, bool reverse);
+
+    void GetAllBFCreate(idx_t cur, unordered_map<idx_t, vector<BlockedBloomFilter*>> &temp_result_to_create, bool reverse);
+
+    unique_ptr<LogicalCreateBF>
+    BuildSingleCreateOperator(LogicalOperator &node,
+							  unordered_map<idx_t, vector<BlockedBloomFilter*>> &temp_result_to_create);
+
+    unique_ptr<LogicalUseBF>
+    BuildUseOperator(LogicalOperator &node,
+					 vector<BlockedBloomFilter*> &temp_result_to_use,
+                     vector<idx_t> &depend_nodes,
+					 bool reverse);
+
+    unique_ptr<LogicalCreateBF>
+    BuildCreateUsePair(LogicalOperator &node,
+                       vector<BlockedBloomFilter*> &temp_result_to_use,
+					   unordered_map<idx_t, vector<BlockedBloomFilter*>> &temp_result_to_create,
+                       vector<idx_t> &depend_nodes,
+					   bool reverse);
 };
 }

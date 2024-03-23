@@ -25,8 +25,4 @@ void LogicalCreateBF::ResolveTypes() {
 vector<ColumnBinding> LogicalCreateBF::GetColumnBindings() {
 	return children[0]->GetColumnBindings();
 }
-
-void LogicalCreateBF::AddDownStreamCreateBF(LogicalCreateBF *op) {
-	related_create_bf.emplace_back(op);
-}
 }

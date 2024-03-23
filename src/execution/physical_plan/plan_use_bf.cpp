@@ -7,9 +7,12 @@
 namespace duckdb {
 unique_ptr<PhysicalOperator> PhysicalPlanGenerator::CreatePlan(LogicalUseBF &op) {
     unique_ptr<PhysicalOperator> plan = CreatePlan(*op.children[0]);
-    auto create_bf = make_uniq<PhysicalUseBF>(plan->types, op.bf_to_use, op.estimated_cardinality);
-    create_bf->children.emplace_back(std::move(plan));
-    plan = std::move(create_bf);
+    auto use_bf = make_uniq<PhysicalUseBF>(plan->types, op.bf_to_use, op.estimated_cardinality);
+    use_bf->children.emplace_back(std::move(plan));
+    for(auto cell : op.related_create_bf) {
+        use_bf->related_create_bf.emplace_back(CreatePlanfromRelated(*cell));
+    }
+    plan = std::move(use_bf);
     return plan;
 }
 }

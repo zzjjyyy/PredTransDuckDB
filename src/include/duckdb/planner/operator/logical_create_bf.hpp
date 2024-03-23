@@ -10,8 +10,6 @@ class LogicalCreateBF : public LogicalOperator {
 public:
 	static constexpr const LogicalOperatorType TYPE = LogicalOperatorType::LOGICAL_CREATE_BF;
 
-	vector<LogicalCreateBF *> related_create_bf;
-	
 	PhysicalCreateBF *physical = nullptr;
 
 public:
@@ -28,8 +26,6 @@ public:
 	idx_t EstimateCardinality(ClientContext &context) override;
 
 	vector<ColumnBinding> GetColumnBindings() override;
-
-	void AddDownStreamCreateBF(LogicalCreateBF *op);
 
 protected:
 	void ResolveTypes() override;

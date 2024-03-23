@@ -13,8 +13,6 @@ public:
 
     unordered_map<idx_t, vector<BlockedBloomFilter*>> bf_to_create;
 
-	vector<PhysicalCreateBF *> related_create_bf;
-
 	shared_ptr<Pipeline> this_pipeline;
 
 public:
@@ -32,7 +30,6 @@ public:
 	SinkResultType Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const override;
 	// SinkCombineResultType Combine(ExecutionContext &context, OperatorSinkCombineInput &input) const override;
 
-	// unique_ptr<LocalSinkState> GetLocalSinkState(ExecutionContext &context) const override;
 	unique_ptr<GlobalSinkState> GetGlobalSinkState(ClientContext &context) const override;
 
 	bool IsSink() const override {

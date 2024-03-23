@@ -28,9 +28,6 @@ unique_ptr<PhysicalOperator> PhysicalPlanGenerator::CreatePlan(LogicalCreateBF &
     } else {
         create_bf = unique_ptr<PhysicalCreateBF>(op.physical);
     }
-    for(auto cell : op.related_create_bf) {
-        create_bf->related_create_bf.emplace_back(CreatePlanfromRelated(*cell));
-    }
     plan = std::move(create_bf);
     return plan;
 }

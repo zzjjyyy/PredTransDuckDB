@@ -155,6 +155,10 @@ string PhysicalOperatorToString(PhysicalOperatorType type) {
 		return "PIVOT";
 	case PhysicalOperatorType::COPY_DATABASE:
 		return "COPY_DATABASE";
+	case PhysicalOperatorType::CREATE_BF:
+		return "CREATE_BF";
+	case PhysicalOperatorType::USE_BF:
+		return "USE_BF";
 	case PhysicalOperatorType::INVALID:
 		break;
 	}
