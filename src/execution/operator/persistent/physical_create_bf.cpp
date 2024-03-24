@@ -8,22 +8,6 @@
 namespace duckdb {
 PhysicalCreateBF::PhysicalCreateBF(vector<LogicalType> types, unordered_map<idx_t, vector<BlockedBloomFilter*>> bf, idx_t estimated_cardinality)
     : PhysicalOperator(PhysicalOperatorType::CREATE_BF, std::move(types), estimated_cardinality), bf_to_create(bf) {
-    int64_t num_rows = 0;
-	if (this->estimated_cardinality > 10000000) {
-		num_rows = this->estimated_cardinality;
-	} else if (this->estimated_cardinality * 200 > 10000000) {
-		num_rows = 10000000;
-	} else {
-		num_rows = this->estimated_cardinality * 200;
-	}
-	for (auto &filter_vec : bf_to_create) {
-		for(auto &filter : filter_vec.second) {
-			auto builder = make_shared<BloomFilterBuilder_SingleThreaded>();
-			builder->Begin(1, arrow::internal::CpuInfo::AVX2, arrow::MemoryPool::CreateDefault().get(),
-						   num_rows, 0, filter);
-			builders[filter_vec.first].emplace_back(builder);
-		}
-	}
 };
 
 //===--------------------------------------------------------------------===//
@@ -41,6 +25,7 @@ public:
 SinkResultType PhysicalCreateBF::Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const {
 	auto &state = input.global_state.Cast<CreateBFGlobalState>();
 	chunk.Flatten();
+	/*
 	for(auto &filter_builder_vec : builders) {
 		for(auto &filter_builder : filter_builder_vec.second) {
 			Vector hashes(LogicalType::HASH);
@@ -48,8 +33,34 @@ SinkResultType PhysicalCreateBF::Sink(ExecutionContext &context, DataChunk &chun
 			filter_builder->PushNextBatch(arrow::internal::CpuInfo::AVX2, chunk.size(), (hash_t*)hashes.GetData());
 		}
 	}
+	*/
 	state.data.Append(chunk);
 	return SinkResultType::NEED_MORE_INPUT;
+}
+
+SinkFinalizeType PhysicalCreateBF::Finalize(Pipeline &pipeline, Event &event, ClientContext &context,
+	                                  		OperatorSinkFinalizeInput &input) const {	
+	auto &state = input.global_state.Cast<CreateBFGlobalState>();
+	int64_t num_rows = state.data.Count();
+	unordered_map<idx_t, vector<shared_ptr<BloomFilterBuilder_SingleThreaded>>> builders;
+	for (auto &filter_vec : bf_to_create) {
+		for(auto &filter : filter_vec.second) {
+			auto builder = make_shared<BloomFilterBuilder_SingleThreaded>();
+			builder->Begin(1, arrow::internal::CpuInfo::AVX2, arrow::MemoryPool::CreateDefault().get(),
+						   num_rows, 0, filter);
+			builders[filter_vec.first].emplace_back(builder);
+		}
+	}
+	for (auto &chunk : state.data.Chunks()) {
+		for(auto &filter_builder_vec : builders) {
+			for(auto &filter_builder : filter_builder_vec.second) {
+				Vector hashes(LogicalType::HASH);
+				VectorOperations::Hash(chunk.data[filter_builder_vec.first], hashes, chunk.size());
+				filter_builder->PushNextBatch(arrow::internal::CpuInfo::AVX2, chunk.size(), (hash_t*)hashes.GetData());
+			}
+		}
+	}
+	return SinkFinalizeType::READY;
 }
 
 unique_ptr<GlobalSinkState> PhysicalCreateBF::GetGlobalSinkState(ClientContext &context) const {

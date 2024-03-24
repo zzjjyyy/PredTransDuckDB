@@ -21,12 +21,13 @@ OperatorResultType PhysicalUseBF::ExecuteInternal(ExecutionContext &context, Dat
 	for (idx_t i = 0; i < result_count; i++) {
 		sel.set_index(i, i);
 	}
+	D_ASSERT(bf_to_use.size() == 1);
 	for (auto itr = bf_to_use.begin(); itr != bf_to_use.end(); itr++) {
 		auto bf = *itr;
         Vector &result = input.data[bf->Ref];
 		BloomFilterUseKernel::filter(result, bf, sel, result_count, row_num);
     }
-	if (result_count == input.size()) {
+	if (result_count == row_num) {
 		// nothing was filtered: skip adding any selection vectors
 		chunk.Reference(input);
 	} else {

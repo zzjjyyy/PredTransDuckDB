@@ -11,6 +11,7 @@
 #include "arrow/result.h"
 #include "arrow/status.h"
 #include "duckdb/planner/column_binding.hpp"
+#include "duckdb/common/types/selection_vector.hpp"
 
 namespace duckdb {
 
@@ -114,9 +115,9 @@ public:
   // Uses memory prefetching for larger Bloom filters.
   //
   void Find(int64_t hardware_flags, int64_t num_rows, const uint32_t* hashes,
-            uint8_t* result_bit_vector, bool enable_prefetch = true) const;
+            SelectionVector &sel, SelectionVector &new_sel, idx_t &result_count, bool enable_prefetch = true) const;
   void Find(int64_t hardware_flags, int64_t num_rows, const uint64_t* hashes,
-            uint8_t* result_bit_vector, bool enable_prefetch = true) const;
+            SelectionVector &sel, SelectionVector &new_sel, idx_t &result_count, bool enable_prefetch = true) const;
 
   ColumnBinding GetCol() {
     return column_binding_;
@@ -229,7 +230,8 @@ private:
   inline void InsertImp(int64_t num_rows, const T* hashes);
 
   template <typename T>
-  inline void FindImp(int64_t num_rows, const T* hashes, uint8_t* result_bit_vector,
+  inline void FindImp(int64_t num_rows, const T* hashes, SelectionVector &sel,
+                      SelectionVector &new_sel, idx_t &result_count,
                       bool enable_prefetch) const;
 
   void SingleFold(int num_folds);

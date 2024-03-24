@@ -16,20 +16,19 @@ void BloomFilterUseKernel::filter(const Vector &result,
     }
     idx_t result_count = 0;
     Vector hashes(LogicalType::HASH);
-    Vector temp(const_cast<Vector &>(result), sel, approved_tuple_count);
-	VectorOperations::Hash(temp, hashes, approved_tuple_count);
+	VectorOperations::Hash(const_cast<Vector &>(result), hashes, row_num);
 
-    uint8_t* result_bit_vector = new uint8_t[approved_tuple_count / 8 + 1];
-    bloom_filter->Find(arrow::internal::CpuInfo::AVX2, approved_tuple_count, (hash_t*)hashes.GetData(), result_bit_vector);
-    for (auto i = 0; i < approved_tuple_count; i++) {
-        auto idx = sel.get_index(i);
-        uint8_t result_byte = result_bit_vector[i / 8];
-        uint8_t result_bit = result_byte & (1 << (i % 8));
-		if (result_bit != 0) {
-			new_sel.set_index(result_count++, idx);
-		}
+    bloom_filter->Find(arrow::internal::CpuInfo::AVX2, row_num,
+                       (hash_t*)hashes.GetData(), sel, new_sel, result_count, true);
+    /*
+    hash_t* hash_ptr = (hash_t*)hashes.GetData();
+    for(auto i = 0; i < approved_tuple_count; i++) {
+        if (bloom_filter->Find(hash_ptr[i])) {
+            auto idx = sel.get_index(i);
+            new_sel.set_index(result_count++, idx);
+        }
     }
-    delete[] result_bit_vector;
+    */
     approved_tuple_count = result_count;
     sel.Initialize(new_sel);
     return;

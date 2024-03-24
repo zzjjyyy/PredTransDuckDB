@@ -183,22 +183,22 @@ idx_t PredicateTransferOptimizer::GetNodeId(LogicalOperator &node, vector<Logica
 void PredicateTransferOptimizer::GetAllBFUsed(idx_t cur, vector<BlockedBloomFilter*> &temp_result_to_use, vector<idx_t> &depend_nodes, bool reverse) {
 	if(!reverse) {
 		for(auto &edge : dag_manager.nodes.nodes[cur]->in_) {
-			depend_nodes.emplace_back(edge->dest_);
 			for(auto bloom_filter : edge->bloom_filters) {
 				if(!bloom_filter->isUsed())  {
 					bloom_filter->setUsed();
 					temp_result_to_use.emplace_back(bloom_filter);
+					depend_nodes.emplace_back(edge->dest_);
 				}
 			}
 		}
 	} else {
 		/* Further to do, remove the duplicate blooom filter */
 		for(auto &edge : dag_manager.nodes.nodes[cur]->out_) {
-			depend_nodes.emplace_back(edge->dest_);
 			for(auto bloom_filter : edge->bloom_filters) {
 				if(!bloom_filter->isUsed())  {
 					bloom_filter->setUsed();
 					temp_result_to_use.emplace_back(bloom_filter);
+					depend_nodes.emplace_back(edge->dest_);
 				}
 			}
 		}
@@ -261,10 +261,16 @@ PredicateTransferOptimizer::BuildUseOperator(LogicalOperator &node,
 											 vector<BlockedBloomFilter*> &temp_result_to_use,
 											 vector<idx_t> &depend_nodes,
 											 bool reverse) {
-	auto use_bf = make_uniq<LogicalUseBF>(temp_result_to_use);
-	use_bf->has_estimated_cardinality = true;
-	use_bf->estimated_cardinality = node.estimated_cardinality;
-	for(auto idx : depend_nodes) {
+	D_ASSERT(temp_result_to_use.size() == depend_nodes.size());
+	unique_ptr<LogicalUseBF> pre_use_bf;
+	unique_ptr<LogicalUseBF> use_bf;
+	for(int i = 0; i < temp_result_to_use.size(); i++) {
+		vector<BlockedBloomFilter*> v;
+		v.emplace_back(temp_result_to_use[i]);
+		use_bf = make_uniq<LogicalUseBF>(v);
+		use_bf->has_estimated_cardinality = true;
+		use_bf->estimated_cardinality = node.estimated_cardinality;
+		auto idx = depend_nodes[i];
 		auto base_node = dag_manager.nodes_manager.getNode(idx);
 		if (!reverse) {
 			auto related_bf_create = replace_map_forward[base_node].get();
@@ -281,8 +287,12 @@ PredicateTransferOptimizer::BuildUseOperator(LogicalOperator &node,
 				D_ASSERT(false);
 			}
 		}
+		if (pre_use_bf != nullptr) {
+			use_bf->AddChild(std::move(pre_use_bf));
+		}
+		pre_use_bf = std::move(use_bf);
 	}
-	return use_bf;
+	return pre_use_bf;
 }
 
 unique_ptr<LogicalCreateBF>
@@ -291,27 +301,8 @@ PredicateTransferOptimizer::BuildCreateUsePair(LogicalOperator &node,
 											   unordered_map<idx_t, vector<BlockedBloomFilter*>> &temp_result_to_create,
 											   vector<idx_t> &depend_nodes,
 											   bool reverse) {
-	auto use_bf = make_uniq<LogicalUseBF>(temp_result_to_use);
-	use_bf->has_estimated_cardinality = true;
-	use_bf->estimated_cardinality = node.estimated_cardinality;
-	for(auto idx : depend_nodes) {
-		auto base_node = dag_manager.nodes_manager.getNode(idx);
-		if (!reverse) {
-			auto related_bf_create = replace_map_forward[base_node].get();
-			if(related_bf_create->type == LogicalOperatorType::LOGICAL_CREATE_BF) {
-				use_bf->AddDownStreamOperator((LogicalCreateBF*)related_bf_create);
-			} else {
-				D_ASSERT(false);
-			}
-		} else {
-			auto related_bf_create = replace_map_backward[base_node].get();
-			if(related_bf_create->type == LogicalOperatorType::LOGICAL_CREATE_BF) {
-				use_bf->AddDownStreamOperator((LogicalCreateBF*)related_bf_create);
-			} else {
-				D_ASSERT(false);
-			}
-		}
-	}
+	auto use_bf = BuildUseOperator(node, temp_result_to_use, depend_nodes, reverse);
+	make_uniq<LogicalUseBF>(temp_result_to_use);
 	auto create_bf = make_uniq<LogicalCreateBF>(temp_result_to_create);
 	create_bf->AddChild(unique_ptr_cast<LogicalUseBF, LogicalOperator>(std::move(use_bf)));
 	create_bf->has_estimated_cardinality = true;
@@ -326,13 +317,11 @@ unique_ptr<LogicalOperator> PredicateTransferOptimizer::InsertCreateBFOperator(u
 	void *plan_ptr = plan.get();
 	auto itr = replace_map_forward.find(plan_ptr);
 	if (itr != replace_map_forward.end()) {
-		if (itr->second->children.size() == 0) {
-			/* itr->second is UseBF or single CreateBF */
-			itr->second->AddChild(std::move(plan));
-		} else {
-			/* itr->second is UseBF-CreateBF Pair */
-			itr->second->children[0]->AddChild(std::move(plan));
+		auto ptr = itr->second.get();
+		while (ptr->children.size() != 0) {
+			ptr = ptr->children[0].get();
 		}
+		ptr->AddChild(std::move(plan));
 		return std::move(itr->second);
 	} else {
 		return plan;
@@ -346,23 +335,19 @@ unique_ptr<LogicalOperator> PredicateTransferOptimizer::InsertCreateBFOperator_d
 	void *plan_ptr = plan.get();
 	auto itr = replace_map_forward.find(plan_ptr);
 	if (itr != replace_map_forward.end()) {
-		if (itr->second->children.size() == 0) {
-			/* itr->second is UseBF or single CreateBF */
-			itr->second->AddChild(std::move(plan));
-		} else {
-			/* itr->second is UseBF-CreateBF Pair */
-			itr->second->children[0]->AddChild(std::move(plan));
+		auto ptr = itr->second.get();
+		while (ptr->children.size() != 0) {
+			ptr = ptr->children[0].get();
 		}
+		ptr->AddChild(std::move(plan));
 		plan = std::move(itr->second);
 		auto itr_next = replace_map_backward.find(plan_ptr);
 		if (itr_next != replace_map_backward.end()) {
-			if (itr_next->second->children.size() == 0) {
-				/* itr_next->second is UseBF or single CreateBF */
-				itr_next->second->AddChild(std::move(plan));
-			} else {
-				/* itr_next->second is UseBF-CreateBF Pair */
-				itr_next->second->children[0]->AddChild(std::move(plan));
+			auto ptr_next = itr_next->second.get();
+			while (ptr_next->children.size() != 0) {
+				ptr_next = ptr_next->children[0].get();
 			}
+			ptr_next->AddChild(std::move(plan));
 			return std::move(itr_next->second);
 		} else {
 			return plan;
