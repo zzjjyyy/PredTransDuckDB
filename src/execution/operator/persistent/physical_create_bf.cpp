@@ -25,15 +25,6 @@ public:
 SinkResultType PhysicalCreateBF::Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const {
 	auto &state = input.global_state.Cast<CreateBFGlobalState>();
 	chunk.Flatten();
-	/*
-	for(auto &filter_builder_vec : builders) {
-		for(auto &filter_builder : filter_builder_vec.second) {
-			Vector hashes(LogicalType::HASH);
-			VectorOperations::Hash(chunk.data[filter_builder_vec.first], hashes, chunk.size());
-			filter_builder->PushNextBatch(arrow::internal::CpuInfo::AVX2, chunk.size(), (hash_t*)hashes.GetData());
-		}
-	}
-	*/
 	state.data.Append(chunk);
 	return SinkResultType::NEED_MORE_INPUT;
 }

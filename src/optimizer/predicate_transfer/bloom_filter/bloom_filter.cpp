@@ -156,10 +156,46 @@ void BlockedBloomFilter::Find(int64_t hardware_flags, int64_t num_rows, const ui
   /*
   if (!(enable_prefetch && UsePrefetch()) &&
       (hardware_flags & arrow::internal::CpuInfo::AVX2)) {
+    uint8_t *result_bit_vector = new uint8_t[num_rows / 8];
     num_processed = Find_avx2(num_rows, hashes, result_bit_vector);
     // Make sure that the results in bit vector for the remaining rows start at
     // a byte boundary.
     num_processed -= (num_processed % 8);
+    for(int i = 0; i < num_rows / 8; i++) {
+      if (result_bit_vector[i] & ((uint8_t)1)) {
+        auto idx = sel.get_index(i * 8 + 0);
+        new_sel.set_index(result_count++, idx);
+      }
+      if (result_bit_vector[i] & ((uint8_t)2)) {
+        auto idx = sel.get_index(i * 8 + 1);
+        new_sel.set_index(result_count++, idx);
+      }
+      if (result_bit_vector[i] & ((uint8_t)4)) {
+        auto idx = sel.get_index(i * 8 + 2);
+        new_sel.set_index(result_count++, idx);
+      }
+      if (result_bit_vector[i] & ((uint8_t)8)) {
+        auto idx = sel.get_index(i * 8 + 3);
+        new_sel.set_index(result_count++, idx);
+      }
+      if (result_bit_vector[i] & ((uint8_t)16)) {
+        auto idx = sel.get_index(i * 8 + 4);
+        new_sel.set_index(result_count++, idx);
+      }
+      if (result_bit_vector[i] & ((uint8_t)32)) {
+        auto idx = sel.get_index(i * 8 + 5);
+        new_sel.set_index(result_count++, idx);
+      }
+      if (result_bit_vector[i] & ((uint8_t)64)) {
+        auto idx = sel.get_index(i * 8 + 6);
+        new_sel.set_index(result_count++, idx);
+      }
+      if (result_bit_vector[i] & ((uint8_t)128)) {
+        auto idx = sel.get_index(i * 8 + 7);
+        new_sel.set_index(result_count++, idx);
+      }
+    }
+    delete[] result_bit_vector;
   }
   */
   ARROW_DCHECK(num_processed % 8 == 0);
@@ -171,13 +207,49 @@ void BlockedBloomFilter::Find(int64_t hardware_flags, int64_t num_rows, const ui
                               SelectionVector &sel, SelectionVector &new_sel, idx_t &result_count,
                               bool enable_prefetch) const {
   int64_t num_processed = 0;
-/*
+  /*
   if (!(enable_prefetch && UsePrefetch()) &&
       (hardware_flags & arrow::internal::CpuInfo::AVX2)) {
+    uint8_t *result_bit_vector = new uint8_t[num_rows / 8];
     num_processed = Find_avx2(num_rows, hashes, result_bit_vector);
     num_processed -= (num_processed % 8);
+    for(int i = 0; i < num_processed / 8; i++) {
+      if (result_bit_vector[i] & ((uint8_t)1)) {
+        auto idx = sel.get_index(i * 8 + 0);
+        new_sel.set_index(result_count++, idx);
+      }
+      if (result_bit_vector[i] & ((uint8_t)2)) {
+        auto idx = sel.get_index(i * 8 + 1);
+        new_sel.set_index(result_count++, idx);
+      }
+      if (result_bit_vector[i] & ((uint8_t)4)) {
+        auto idx = sel.get_index(i * 8 + 2);
+        new_sel.set_index(result_count++, idx);
+      }
+      if (result_bit_vector[i] & ((uint8_t)8)) {
+        auto idx = sel.get_index(i * 8 + 3);
+        new_sel.set_index(result_count++, idx);
+      }
+      if (result_bit_vector[i] & ((uint8_t)16)) {
+        auto idx = sel.get_index(i * 8 + 4);
+        new_sel.set_index(result_count++, idx);
+      }
+      if (result_bit_vector[i] & ((uint8_t)32)) {
+        auto idx = sel.get_index(i * 8 + 5);
+        new_sel.set_index(result_count++, idx);
+      }
+      if (result_bit_vector[i] & ((uint8_t)64)) {
+        auto idx = sel.get_index(i * 8 + 6);
+        new_sel.set_index(result_count++, idx);
+      }
+      if (result_bit_vector[i] & ((uint8_t)128)) {
+        auto idx = sel.get_index(i * 8 + 7);
+        new_sel.set_index(result_count++, idx);
+      }
+    }
+    delete[] result_bit_vector;
   }
-*/
+  */
   ARROW_DCHECK(num_processed % 8 == 0);
   FindImp(num_rows - num_processed, hashes + num_processed,
           sel, new_sel, result_count, enable_prefetch);

@@ -20,15 +20,7 @@ void BloomFilterUseKernel::filter(const Vector &result,
 
     bloom_filter->Find(arrow::internal::CpuInfo::AVX2, row_num,
                        (hash_t*)hashes.GetData(), sel, new_sel, result_count, true);
-    /*
-    hash_t* hash_ptr = (hash_t*)hashes.GetData();
-    for(auto i = 0; i < approved_tuple_count; i++) {
-        if (bloom_filter->Find(hash_ptr[i])) {
-            auto idx = sel.get_index(i);
-            new_sel.set_index(result_count++, idx);
-        }
-    }
-    */
+
     approved_tuple_count = result_count;
     sel.Initialize(new_sel);
     return;
