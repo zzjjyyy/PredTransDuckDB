@@ -57,6 +57,6 @@ public:
 
 class DAG {
 public:
-    vector<unique_ptr<DAGNode>> nodes;
+    unordered_map<int, unique_ptr<DAGNode>> nodes;
 };
 }

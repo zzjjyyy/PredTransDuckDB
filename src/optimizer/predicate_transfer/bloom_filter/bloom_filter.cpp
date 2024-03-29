@@ -122,10 +122,8 @@ void BlockedBloomFilter::Insert(int64_t hardware_flags, int64_t num_rows,
 
 template <typename T>
 void BlockedBloomFilter::FindImp(int64_t num_rows, const T* hashes, SelectionVector &sel,
-                                 SelectionVector &new_sel, idx_t &result_count,
-                                 bool enable_prefetch) const {
+                                 idx_t &result_count, bool enable_prefetch) const {
   int64_t num_processed = 0;
-  uint64_t bits = 0ULL;
 
   if (enable_prefetch && UsePrefetch()) {
     constexpr int kPrefetchIterations = 16;
@@ -133,25 +131,24 @@ void BlockedBloomFilter::FindImp(int64_t num_rows, const T* hashes, SelectionVec
       PREFETCH(blocks_ + block_id(hashes[i + kPrefetchIterations]));
       bool result = Find(hashes[i]);
       if (result) {
-        auto idx = sel.get_index(i);
-        new_sel.set_index(result_count++, idx);
+        sel.set_index(result_count++, i);
       }
     }
     num_processed = num_rows - kPrefetchIterations;
   }
-
-  for (int64_t i = num_processed; i < num_rows; ++i) {
+  if(num_processed < 0) {
+    num_processed = 0;
+  }
+  for (int64_t i = num_processed; i < num_rows; i++) {
     bool result = Find(hashes[i]);
     if (result) {
-      auto idx = sel.get_index(i);
-      new_sel.set_index(result_count++, idx);
+      sel.set_index(result_count++, i);
     }
   }
 }
 
 void BlockedBloomFilter::Find(int64_t hardware_flags, int64_t num_rows, const uint32_t* hashes,
-                              SelectionVector &sel, SelectionVector &new_sel, idx_t &result_count,
-                              bool enable_prefetch) const {
+                              SelectionVector &sel, idx_t &result_count, bool enable_prefetch) const {
   int64_t num_processed = 0;
   /*
   if (!(enable_prefetch && UsePrefetch()) &&
@@ -161,51 +158,16 @@ void BlockedBloomFilter::Find(int64_t hardware_flags, int64_t num_rows, const ui
     // Make sure that the results in bit vector for the remaining rows start at
     // a byte boundary.
     num_processed -= (num_processed % 8);
-    for(int i = 0; i < num_rows / 8; i++) {
-      if (result_bit_vector[i] & ((uint8_t)1)) {
-        auto idx = sel.get_index(i * 8 + 0);
-        new_sel.set_index(result_count++, idx);
-      }
-      if (result_bit_vector[i] & ((uint8_t)2)) {
-        auto idx = sel.get_index(i * 8 + 1);
-        new_sel.set_index(result_count++, idx);
-      }
-      if (result_bit_vector[i] & ((uint8_t)4)) {
-        auto idx = sel.get_index(i * 8 + 2);
-        new_sel.set_index(result_count++, idx);
-      }
-      if (result_bit_vector[i] & ((uint8_t)8)) {
-        auto idx = sel.get_index(i * 8 + 3);
-        new_sel.set_index(result_count++, idx);
-      }
-      if (result_bit_vector[i] & ((uint8_t)16)) {
-        auto idx = sel.get_index(i * 8 + 4);
-        new_sel.set_index(result_count++, idx);
-      }
-      if (result_bit_vector[i] & ((uint8_t)32)) {
-        auto idx = sel.get_index(i * 8 + 5);
-        new_sel.set_index(result_count++, idx);
-      }
-      if (result_bit_vector[i] & ((uint8_t)64)) {
-        auto idx = sel.get_index(i * 8 + 6);
-        new_sel.set_index(result_count++, idx);
-      }
-      if (result_bit_vector[i] & ((uint8_t)128)) {
-        auto idx = sel.get_index(i * 8 + 7);
-        new_sel.set_index(result_count++, idx);
-      }
-    }
     delete[] result_bit_vector;
   }
   */
   ARROW_DCHECK(num_processed % 8 == 0);
   FindImp(num_rows - num_processed, hashes + num_processed,
-          sel, new_sel, result_count, enable_prefetch);
+          sel, result_count, enable_prefetch);
 }
 
 void BlockedBloomFilter::Find(int64_t hardware_flags, int64_t num_rows, const uint64_t* hashes,
-                              SelectionVector &sel, SelectionVector &new_sel, idx_t &result_count,
-                              bool enable_prefetch) const {
+                              SelectionVector &sel, idx_t &result_count, bool enable_prefetch) const {
   int64_t num_processed = 0;
   /*
   if (!(enable_prefetch && UsePrefetch()) &&
@@ -213,46 +175,12 @@ void BlockedBloomFilter::Find(int64_t hardware_flags, int64_t num_rows, const ui
     uint8_t *result_bit_vector = new uint8_t[num_rows / 8];
     num_processed = Find_avx2(num_rows, hashes, result_bit_vector);
     num_processed -= (num_processed % 8);
-    for(int i = 0; i < num_processed / 8; i++) {
-      if (result_bit_vector[i] & ((uint8_t)1)) {
-        auto idx = sel.get_index(i * 8 + 0);
-        new_sel.set_index(result_count++, idx);
-      }
-      if (result_bit_vector[i] & ((uint8_t)2)) {
-        auto idx = sel.get_index(i * 8 + 1);
-        new_sel.set_index(result_count++, idx);
-      }
-      if (result_bit_vector[i] & ((uint8_t)4)) {
-        auto idx = sel.get_index(i * 8 + 2);
-        new_sel.set_index(result_count++, idx);
-      }
-      if (result_bit_vector[i] & ((uint8_t)8)) {
-        auto idx = sel.get_index(i * 8 + 3);
-        new_sel.set_index(result_count++, idx);
-      }
-      if (result_bit_vector[i] & ((uint8_t)16)) {
-        auto idx = sel.get_index(i * 8 + 4);
-        new_sel.set_index(result_count++, idx);
-      }
-      if (result_bit_vector[i] & ((uint8_t)32)) {
-        auto idx = sel.get_index(i * 8 + 5);
-        new_sel.set_index(result_count++, idx);
-      }
-      if (result_bit_vector[i] & ((uint8_t)64)) {
-        auto idx = sel.get_index(i * 8 + 6);
-        new_sel.set_index(result_count++, idx);
-      }
-      if (result_bit_vector[i] & ((uint8_t)128)) {
-        auto idx = sel.get_index(i * 8 + 7);
-        new_sel.set_index(result_count++, idx);
-      }
-    }
     delete[] result_bit_vector;
   }
   */
   ARROW_DCHECK(num_processed % 8 == 0);
   FindImp(num_rows - num_processed, hashes + num_processed,
-          sel, new_sel, result_count, enable_prefetch);
+          sel, result_count, enable_prefetch);
 }
 
 void BlockedBloomFilter::Fold() {

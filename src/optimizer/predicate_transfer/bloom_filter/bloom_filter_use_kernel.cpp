@@ -8,9 +8,7 @@ void BloomFilterUseKernel::filter(const Vector &result,
             SelectionVector &sel,
             idx_t &approved_tuple_count,
             idx_t row_num) {
-    SelectionVector new_sel(approved_tuple_count);
     if (bloom_filter->isEmpty()) {
-        sel.Initialize(new_sel);
         approved_tuple_count = 0;
         return;
     }
@@ -19,10 +17,9 @@ void BloomFilterUseKernel::filter(const Vector &result,
 	VectorOperations::Hash(const_cast<Vector &>(result), hashes, row_num);
 
     bloom_filter->Find(arrow::internal::CpuInfo::AVX2, row_num,
-                       (hash_t*)hashes.GetData(), sel, new_sel, result_count, true);
+                       (hash_t*)hashes.GetData(), sel, result_count, true);
 
     approved_tuple_count = result_count;
-    sel.Initialize(new_sel);
     return;
 }
 }

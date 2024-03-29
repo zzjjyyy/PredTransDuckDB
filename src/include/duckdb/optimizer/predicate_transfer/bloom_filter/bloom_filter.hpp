@@ -115,9 +115,9 @@ public:
   // Uses memory prefetching for larger Bloom filters.
   //
   void Find(int64_t hardware_flags, int64_t num_rows, const uint32_t* hashes,
-            SelectionVector &sel, SelectionVector &new_sel, idx_t &result_count, bool enable_prefetch = true) const;
+            SelectionVector &sel, idx_t &result_count, bool enable_prefetch = true) const;
   void Find(int64_t hardware_flags, int64_t num_rows, const uint64_t* hashes,
-            SelectionVector &sel, SelectionVector &new_sel, idx_t &result_count, bool enable_prefetch = true) const;
+            SelectionVector &sel, idx_t &result_count, bool enable_prefetch = true) const;
 
   ColumnBinding GetCol() {
     return column_binding_;
@@ -231,8 +231,7 @@ private:
 
   template <typename T>
   inline void FindImp(int64_t num_rows, const T* hashes, SelectionVector &sel,
-                      SelectionVector &new_sel, idx_t &result_count,
-                      bool enable_prefetch) const;
+                      idx_t &result_count, bool enable_prefetch) const;
 
   void SingleFold(int num_folds);
 

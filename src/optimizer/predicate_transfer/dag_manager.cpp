@@ -39,11 +39,13 @@ void DAGManager::ExtractEdges(LogicalOperator &op,
 	expression_set_t filter_set;
     for (auto &filter_op : filter_operators) {
 		auto &f_op = filter_op.get();
-        if (f_op.type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN ||
-		    f_op.type == LogicalOperatorType::LOGICAL_ASOF_JOIN) {
+        if (f_op.type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN) {
             auto &join = f_op.Cast<LogicalComparisonJoin>();
 			D_ASSERT(join.expressions.empty());
 			for (auto &cond : join.conditions) {
+                if(cond.comparison != ExpressionType::COMPARE_EQUAL) {
+                    continue;
+                }
 				auto comparison =
 				    make_uniq<BoundComparisonExpression>(cond.comparison, cond.left->Copy(), cond.right->Copy());
 				if (filter_set.find(*comparison) == filter_set.end()) {
@@ -56,7 +58,13 @@ void DAGManager::ExtractEdges(LogicalOperator &op,
                     idx_t left_binding = *left_bindings.begin();
                     idx_t right_binding = *right_bindings.begin();
                     auto left_node = nodes_manager.getNode(left_binding);
+                    if(left_node == nullptr) {
+                        continue;
+                    }
                     auto right_node = nodes_manager.getNode(right_binding);
+                    if(right_node == nullptr) {
+                        continue;
+                    }
                     if (join.join_type == JoinType::INNER) {
                         idx_t left_node_in_order = 0;
                         for (idx_t i = 0; i < sorted_nodes.size(); i++) {
@@ -98,10 +106,6 @@ void DAGManager::ExtractEdges(LogicalOperator &op,
 }
 
 void DAGManager::CreateDAG() {
-    for(auto i = 0; i < nodes_manager.NumNodes(); i++) {
-        auto node = make_uniq<DAGNode>(i);
-        nodes.nodes.emplace_back(std::move(node));
-    }
     for (auto &filter_and_binding : filters_and_bindings_) {
         idx_t in;
         idx_t out;
@@ -117,11 +121,22 @@ void DAGManager::CreateDAG() {
             LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(filter_and_binding->out_);
             out = get.GetTableIndex()[0];
         }
-        // build in's out edge
-        nodes.nodes[in]->AddIn(out, filter_and_binding->filter.get());
-       
-        // build out's in edge
-        nodes.nodes[out]->AddOut(in, filter_and_binding->filter.get());
+        if (nodes.nodes.find(in) != nodes.nodes.end()) {
+            // build in's out edge
+            nodes.nodes[in]->AddIn(out, filter_and_binding->filter.get());
+        } else {
+            auto node = make_uniq<DAGNode>(in);
+            nodes.nodes[in] = std::move(node);
+            nodes.nodes[in]->AddIn(out, filter_and_binding->filter.get());
+        }
+        if (nodes.nodes.find(out) != nodes.nodes.end()) {
+            // build out's in edge
+            nodes.nodes[out]->AddOut(in, filter_and_binding->filter.get());
+        } else {
+            auto node = make_uniq<DAGNode>(out);
+            nodes.nodes[out] = std::move(node);
+            nodes.nodes[out]->AddOut(in, filter_and_binding->filter.get());
+        }
     }
 }
 }

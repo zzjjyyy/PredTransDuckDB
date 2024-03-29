@@ -18,9 +18,6 @@ OperatorResultType PhysicalUseBF::ExecuteInternal(ExecutionContext &context, Dat
 	idx_t row_num = input.size();
     idx_t result_count = input.size();
 	SelectionVector sel(STANDARD_VECTOR_SIZE);
-	for (idx_t i = 0; i < result_count; i++) {
-		sel.set_index(i, i);
-	}
 	D_ASSERT(bf_to_use.size() == 1);
 	for (auto itr = bf_to_use.begin(); itr != bf_to_use.end(); itr++) {
 		auto bf = *itr;
