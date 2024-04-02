@@ -130,9 +130,8 @@ void BlockedBloomFilter::FindImp(int64_t num_rows, const T* hashes, SelectionVec
     for (int64_t i = 0; i < num_rows - kPrefetchIterations; ++i) {
       PREFETCH(blocks_ + block_id(hashes[i + kPrefetchIterations]));
       bool result = Find(hashes[i]);
-      if (result) {
-        sel.set_index(result_count++, i);
-      }
+      sel.set_index(result_count, i);
+      result_count += result;
     }
     num_processed = num_rows - kPrefetchIterations;
   }
@@ -141,9 +140,8 @@ void BlockedBloomFilter::FindImp(int64_t num_rows, const T* hashes, SelectionVec
   }
   for (int64_t i = num_processed; i < num_rows; i++) {
     bool result = Find(hashes[i]);
-    if (result) {
-      sel.set_index(result_count++, i);
-    }
+    sel.set_index(result_count, i);
+    result_count += result;
   }
 }
 

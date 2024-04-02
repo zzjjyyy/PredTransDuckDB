@@ -108,7 +108,13 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 	if (op->type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN) {
 		auto &join = op->Cast<LogicalComparisonJoin>();
 		if (join.join_type == JoinType::INNER || join.join_type == JoinType::LEFT || join.join_type == JoinType::RIGHT) {
-			filter_operators.push_back(*op);
+			for(auto &jc : join.conditions) {
+				if(jc.comparison == ExpressionType::COMPARE_EQUAL) {
+					filter_operators.push_back(*op);
+					break;
+				}
+			}
+			
 		}
 	}
    
@@ -137,6 +143,7 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_COMPARISON_JOIN:
+	case LogicalOperatorType::LOGICAL_DELIM_JOIN:
 	case LogicalOperatorType::LOGICAL_CROSS_PRODUCT: {
 		// Adding relations to the current join order optimizer
 		ExtractNodes(*op->children[0], filter_operators);

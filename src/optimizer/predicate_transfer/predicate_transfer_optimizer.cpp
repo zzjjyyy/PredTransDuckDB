@@ -264,7 +264,8 @@ PredicateTransferOptimizer::BuildUseOperator(LogicalOperator &node,
 	D_ASSERT(temp_result_to_use.size() == depend_nodes.size());
 	unique_ptr<LogicalUseBF> pre_use_bf;
 	unique_ptr<LogicalUseBF> use_bf;
-	for(int i = 0; i < temp_result_to_use.size(); i++) {
+	// This is important for performance, not use for (int i = 0; i < temp_result_to_use.size(); i++)
+	for (int i = temp_result_to_use.size() - 1; i >= 0; i--) {
 		vector<BlockedBloomFilter*> v;
 		v.emplace_back(temp_result_to_use[i]);
 		use_bf = make_uniq<LogicalUseBF>(v);
