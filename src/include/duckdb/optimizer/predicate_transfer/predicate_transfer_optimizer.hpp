@@ -29,7 +29,7 @@ private:
 
     vector<pair<ColumnBinding, BlockedBloomFilter*>> CreateBloomFilter(LogicalOperator &node, bool reverse);
 
-    idx_t GetNodeId(LogicalOperator &node, vector<LogicalType> &cur_types, vector<idx_t> &col_mapping);
+    idx_t GetNodeId(LogicalOperator &node);
 
     void GetAllBFUsed(idx_t cur, vector<BlockedBloomFilter*> &temp_result_to_use, vector<idx_t> &depend_nodes, bool reverse);
 

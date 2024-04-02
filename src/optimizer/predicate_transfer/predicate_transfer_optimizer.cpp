@@ -1,6 +1,7 @@
 #include "duckdb/optimizer/predicate_transfer/predicate_transfer_optimizer.hpp"
 #include "duckdb/planner/operator/logical_filter.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
+#include "duckdb/planner/operator/logical_delim_get.hpp"
 #include "duckdb/planner/operator/logical_use_bf.hpp"
 #include "duckdb/execution/physical_plan_generator.hpp"
 #include "duckdb/planner/expression/bound_columnref_expression.hpp"
@@ -108,10 +109,10 @@ void PredicateTransferOptimizer::GetColumnBindingExpression(Expression &expr, ve
 /* Further to do, test filter operator */
 vector<pair<ColumnBinding, BlockedBloomFilter*>> PredicateTransferOptimizer::CreateBloomFilter(LogicalOperator &node, bool reverse) {
 	vector<pair<ColumnBinding, BlockedBloomFilter*>> result;
-	vector<LogicalType> cur_types;
-	vector<idx_t> col_mapping;
-	idx_t cur = GetNodeId(node, cur_types, col_mapping);
-
+	idx_t cur = GetNodeId(node);
+	if(dag_manager.nodes.nodes.find(cur) == dag_manager.nodes.nodes.end()) {
+		return result;
+	}
 	// Use Bloom Filter
 	vector<BlockedBloomFilter*> temp_result_to_use;
 	vector<idx_t> depend_nodes;
@@ -164,18 +165,17 @@ vector<pair<ColumnBinding, BlockedBloomFilter*>> PredicateTransferOptimizer::Cre
 	}
 }
 
-idx_t PredicateTransferOptimizer::GetNodeId(LogicalOperator &node, vector<LogicalType> &cur_types, vector<idx_t> &col_mapping) {
+idx_t PredicateTransferOptimizer::GetNodeId(LogicalOperator &node) {
 	idx_t res = -1;
 	if (node.type == LogicalOperatorType::LOGICAL_GET) {
 		auto &get = node.Cast<LogicalGet>();
-		col_mapping = get.column_ids;
 		res = get.GetTableIndex()[0];
-		cur_types = get.returned_types;
 	} else if (node.type == LogicalOperatorType::LOGICAL_FILTER) {
 		auto &get = LogicalGetinFilter(node);
-		col_mapping = get.column_ids;
 		res = get.GetTableIndex()[0];
-		cur_types = get.returned_types;
+	} else if (node.type == LogicalOperatorType::LOGICAL_DELIM_GET) {
+		auto &delim_get = node.Cast<LogicalDelimGet>();
+		res = delim_get.GetTableIndex()[0];
 	}
 	return res;
 }

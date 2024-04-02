@@ -1,6 +1,7 @@
 #include "duckdb/optimizer/predicate_transfer/nodes_manager.hpp"
 #include "duckdb/planner/operator/logical_aggregate.hpp"
 #include "duckdb/planner/operator/logical_comparison_join.hpp"
+#include "duckdb/planner/operator/logical_delim_get.hpp"
 #include "duckdb/planner/operator/logical_dummy_scan.hpp"
 #include "duckdb/planner/operator/logical_empty_result.hpp"
 #include "duckdb/planner/operator/logical_expression_get.hpp"
@@ -30,6 +31,8 @@ void NodesManager::AddNode(LogicalOperator *op, const RelationStats &stats) {
 	} else if (op->type == LogicalOperatorType::LOGICAL_FILTER) {
 		LogicalGet &children = LogicalGetinFilter(op);
 		nodes[children.GetTableIndex()[0]] = op;
+	} else if (op->type == LogicalOperatorType::LOGICAL_DELIM_GET) {
+		nodes[op->GetTableIndex()[0]] = op;
 	}
     return;
 }
@@ -105,9 +108,13 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 		op = op->children[0].get();
 	}
 
-	if (op->type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN) {
+	if (op->type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN || op->type == LogicalOperatorType::LOGICAL_DELIM_JOIN) {
 		auto &join = op->Cast<LogicalComparisonJoin>();
-		if (join.join_type == JoinType::INNER || join.join_type == JoinType::LEFT || join.join_type == JoinType::RIGHT) {
+		if (join.join_type == JoinType::INNER
+		|| join.join_type == JoinType::LEFT
+		|| join.join_type == JoinType::RIGHT
+		|| join.join_type == JoinType::SEMI
+		|| join.join_type == JoinType::RIGHT_SEMI) {
 			for(auto &jc : join.conditions) {
 				if(jc.comparison == ExpressionType::COMPARE_EQUAL) {
 					filter_operators.push_back(*op);
@@ -120,16 +127,7 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
    
     switch (op->type) {
 	case LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY: {
-		// optimize children
-		RelationStats child_stats;
-		PredicateTransferOptimizer optimizer(context);
-		op->children[0] = optimizer.Optimize(std::move(op->children[0]), &child_stats);
-		auto &aggr = op->Cast<LogicalAggregate>();
-		auto operator_stats = RelationStatisticsHelper::ExtractAggregationStats(aggr, child_stats);
-		if (!datasource_filters.empty()) {
-			operator_stats.cardinality *= RelationStatisticsHelper::DEFAULT_SELECTIVITY;
-		}
-		AddNode(op, operator_stats);
+		ExtractNodes(*op->children[0], filter_operators);
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_WINDOW: {
@@ -177,17 +175,13 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_DELIM_GET: {
+		auto &delim_get = op->Cast<LogicalDelimGet>();
+		auto stats = RelationStatisticsHelper::ExtractDelimGetStats(delim_get, context);
+		AddNode(op, stats);
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_PROJECTION: {
-		auto child_stats = RelationStats();
-		// optimize the child and copy the stats
-		PredicateTransferOptimizer optimizer(context);
-		op->children[0] = optimizer.Optimize(std::move(op->children[0]), &child_stats);
-		auto &proj = op->Cast<LogicalProjection>();
-		// Projection can create columns so we need to add them here
-		auto proj_stats = RelationStatisticsHelper::ExtractProjectionStats(proj, child_stats);
-		AddNode(op, proj_stats);
+		ExtractNodes(*op->children[0], filter_operators);
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_EMPTY_RESULT: {

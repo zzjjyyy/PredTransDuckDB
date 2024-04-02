@@ -14,6 +14,9 @@ bool DAGManager::Build(LogicalOperator &plan) {
     nodes_manager.SortNodes();
     // extract the edges of the hypergraph, creating a list of filters and their associated bindings.
 	ExtractEdges(plan, filter_operators);
+    if(filters_and_bindings_.size() == 0) {
+        return false;
+    }
 	// Create the query_graph hyper edges
 	CreateDAG();
     return true;
@@ -39,7 +42,7 @@ void DAGManager::ExtractEdges(LogicalOperator &op,
 	expression_set_t filter_set;
     for (auto &filter_op : filter_operators) {
 		auto &f_op = filter_op.get();
-        if (f_op.type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN) {
+        if (f_op.type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN || f_op.type == LogicalOperatorType::LOGICAL_DELIM_JOIN) {
             auto &join = f_op.Cast<LogicalComparisonJoin>();
 			D_ASSERT(join.expressions.empty());
 			for (auto &cond : join.conditions) {
@@ -65,7 +68,7 @@ void DAGManager::ExtractEdges(LogicalOperator &op,
                     if(right_node == nullptr) {
                         continue;
                     }
-                    if (join.join_type == JoinType::INNER) {
+                    if (join.join_type == JoinType::INNER || join.join_type == JoinType::SEMI || join.join_type == JoinType::RIGHT_SEMI) {
                         idx_t left_node_in_order = 0;
                         for (idx_t i = 0; i < sorted_nodes.size(); i++) {
                             if(sorted_nodes[i] == left_node) {
@@ -114,12 +117,16 @@ void DAGManager::CreateDAG() {
         } else if (filter_and_binding->in_.type == LogicalOperatorType::LOGICAL_FILTER) {
             LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(filter_and_binding->in_);
             in = get.GetTableIndex()[0];
+        } else if (filter_and_binding->in_.type == LogicalOperatorType::LOGICAL_DELIM_GET) {
+            in = filter_and_binding->in_.GetTableIndex()[0];
         }
         if (filter_and_binding->out_.type == LogicalOperatorType::LOGICAL_GET) {
             out = filter_and_binding->out_.GetTableIndex()[0];
         } else if (filter_and_binding->out_.type == LogicalOperatorType::LOGICAL_FILTER) {
             LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(filter_and_binding->out_);
             out = get.GetTableIndex()[0];
+        } else if (filter_and_binding->out_.type == LogicalOperatorType::LOGICAL_DELIM_GET) {
+            out = filter_and_binding->out_.GetTableIndex()[0];
         }
         if (nodes.nodes.find(in) != nodes.nodes.end()) {
             // build in's out edge
