@@ -38,6 +38,7 @@
 #define SkipList_Node_h
 
 #include "IntegrityEnums.h"
+#include "pcg_random.hpp"
 
 #if __cplusplus < 201103L
 #define nullptr NULL

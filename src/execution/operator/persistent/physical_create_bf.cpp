@@ -1,9 +1,15 @@
 #include "duckdb/execution/operator/persistent/physical_create_bf.hpp"
+#include "duckdb/parallel/base_pipeline_event.hpp"
 #include "duckdb/parallel/thread_context.hpp"
 #include "duckdb/execution/expression_executor.hpp"
 #include "duckdb/parallel/task_scheduler.hpp"
 #include "duckdb/parallel/meta_pipeline.hpp"
 #include "duckdb/common/types/batched_data_collection.hpp"
+#include "duckdb/common/types/row/tuple_data_collection.hpp"
+#include "duckdb/storage/buffer_manager.hpp"
+
+#include <sys/types.h>
+#include <thread>
 
 namespace duckdb {
 PhysicalCreateBF::PhysicalCreateBF(vector<LogicalType> types, unordered_map<idx_t, vector<BlockedBloomFilter*>> bf, idx_t estimated_cardinality)
@@ -13,76 +19,219 @@ PhysicalCreateBF::PhysicalCreateBF(vector<LogicalType> types, unordered_map<idx_
 //===--------------------------------------------------------------------===//
 // Sink
 //===--------------------------------------------------------------------===//
-class CreateBFGlobalState : public GlobalSinkState {
+class CreateBFGlobalSinkState : public GlobalSinkState {
 public:
-	CreateBFGlobalState(ClientContext &context, const PhysicalCreateBF &op)
+	CreateBFGlobalSinkState(ClientContext &context, const PhysicalCreateBF &op)
 		: data(context, op.types) {}
 
+	void ScheduleFinalize(Pipeline &pipeline, Event &event);
+
 	mutex glock;
+	ColumnDataCollection data;
+	unordered_map<idx_t, vector<shared_ptr<BloomFilterBuilder>>> builders;
+};
+
+class CreateBFLocalSinkState : public LocalSinkState {
+public:
+	CreateBFLocalSinkState(ClientContext &context, const PhysicalCreateBF &op)
+		: data(context, op.types) {}
+
 	ColumnDataCollection data;
 };
 
 SinkResultType PhysicalCreateBF::Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const {
-	auto &state = input.global_state.Cast<CreateBFGlobalState>();
+	auto &state = input.local_state.Cast<CreateBFLocalSinkState>();
 	chunk.Flatten();
 	state.data.Append(chunk);
 	return SinkResultType::NEED_MORE_INPUT;
 }
 
+SinkCombineResultType PhysicalCreateBF::Combine(ExecutionContext &context,
+                                         		OperatorSinkCombineInput &input) const {
+	auto &gstate = input.global_state.Cast<CreateBFGlobalSinkState>();
+	auto &state = input.local_state.Cast<CreateBFLocalSinkState>();
+
+	lock_guard<mutex> lock(gstate.glock);
+	gstate.data.Combine(state.data);
+	return SinkCombineResultType::FINISHED;
+}
+
+//===--------------------------------------------------------------------===//
+// Finalize
+//===--------------------------------------------------------------------===//
+struct SchedulerThread {
+#ifndef DUCKDB_NO_THREADS
+	explicit SchedulerThread(unique_ptr<std::thread> thread_p) : internal_thread(std::move(thread_p)) {
+	}
+
+	unique_ptr<std::thread> internal_thread;
+#endif
+};
+
+class CreateBFFinalizeTask : public ExecutorTask {
+public:
+	CreateBFFinalizeTask(shared_ptr<Event> event_p, ClientContext &context, CreateBFGlobalSinkState &sink_p,
+	                     idx_t chunk_idx_from_p, idx_t chunk_idx_to_p, size_t num_threads)
+	    : ExecutorTask(context), event(std::move(event_p)), sink(sink_p), chunk_idx_from(chunk_idx_from_p),
+	      chunk_idx_to(chunk_idx_to_p),
+		  threads(TaskScheduler::GetScheduler(context).threads) {
+	}
+
+	TaskExecutionResult ExecuteTask(TaskExecutionMode mode) override {
+		size_t thread_id = 0;
+		std::thread::id threadId = std::this_thread::get_id();
+		for(size_t i = 0; i < threads.size(); i++) {
+			if (threadId == threads[i]->internal_thread->get_id()) {
+				thread_id = i + 1;
+				break;
+			}
+		}
+		for(idx_t i = chunk_idx_from; i < chunk_idx_to; i++) {
+			DataChunk chunk;
+			sink.data.InitializeScanChunk(chunk);
+			sink.data.FetchChunk(i, chunk);
+			for(auto &filter_builder_vec : sink.builders) {
+				for(auto &filter_builder : filter_builder_vec.second) {
+					Vector hashes(LogicalType::HASH);
+					VectorOperations::Hash(chunk.data[filter_builder_vec.first], hashes, chunk.size());
+					filter_builder->PushNextBatch(thread_id, chunk.size(), (hash_t*)hashes.GetData());
+				}
+			}
+		}
+		event->FinishTask();
+		return TaskExecutionResult::TASK_FINISHED;
+	}
+
+private:
+	shared_ptr<Event> event;
+	CreateBFGlobalSinkState &sink;
+	idx_t chunk_idx_from;
+	idx_t chunk_idx_to;
+	vector<duckdb::unique_ptr<duckdb::SchedulerThread>> &threads;
+};
+
+class CreateBFFinalizeEvent : public BasePipelineEvent {
+	public:
+	CreateBFFinalizeEvent(Pipeline &pipeline_p, CreateBFGlobalSinkState &sink)
+	    : BasePipelineEvent(pipeline_p), sink(sink) {
+	}
+
+	CreateBFGlobalSinkState &sink;
+
+public:
+	void Schedule() override {
+		auto &context = pipeline->GetClientContext();
+
+		vector<shared_ptr<Task>> finalize_tasks;
+		auto &buffer = sink.data;
+		const auto chunk_count = buffer.ChunkCount();
+		const idx_t num_threads = TaskScheduler::GetScheduler(context).NumberOfThreads();
+		if (num_threads == 1 || (buffer.Count() < PARALLEL_CONSTRUCT_THRESHOLD && !context.config.verify_parallelism)) {
+			// Single-threaded finalize
+			finalize_tasks.push_back(make_uniq<CreateBFFinalizeTask>(shared_from_this(), context, sink, 0, chunk_count, 1));
+		} else {
+			// Parallel finalize
+			auto chunks_per_thread = MaxValue<idx_t>((chunk_count + num_threads - 1) / num_threads, 1);
+
+			idx_t chunk_idx = 0;
+			for (idx_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
+				auto chunk_idx_from = chunk_idx;
+				auto chunk_idx_to = MinValue<idx_t>(chunk_idx_from + chunks_per_thread, chunk_count);
+				finalize_tasks.push_back(make_uniq<CreateBFFinalizeTask>(shared_from_this(), context, sink,
+				                                                         chunk_idx_from, chunk_idx_to, num_threads));
+				chunk_idx = chunk_idx_to;
+				if (chunk_idx == chunk_count) {
+					break;
+				}
+			}
+		}
+		SetTasks(std::move(finalize_tasks));
+	}
+
+	static constexpr const idx_t PARALLEL_CONSTRUCT_THRESHOLD = 1048576;
+};
+
+void CreateBFGlobalSinkState::ScheduleFinalize(Pipeline &pipeline, Event &event) {
+	auto new_event = make_shared<CreateBFFinalizeEvent>(pipeline, *this);
+	event.InsertEvent(std::move(new_event));
+}
+
 SinkFinalizeType PhysicalCreateBF::Finalize(Pipeline &pipeline, Event &event, ClientContext &context,
 	                                  		OperatorSinkFinalizeInput &input) const {	
-	auto &state = input.global_state.Cast<CreateBFGlobalState>();
+	auto &state = input.global_state.Cast<CreateBFGlobalSinkState>();
 	int64_t num_rows = state.data.Count();
-	unordered_map<idx_t, vector<shared_ptr<BloomFilterBuilder_SingleThreaded>>> builders;
+	const idx_t num_threads = TaskScheduler::GetScheduler(context).NumberOfThreads();
 	for (auto &filter_vec : bf_to_create) {
 		for(auto &filter : filter_vec.second) {
-			auto builder = make_shared<BloomFilterBuilder_SingleThreaded>();
-			builder->Begin(1, arrow::internal::CpuInfo::AVX2, arrow::MemoryPool::CreateDefault().get(),
-						   num_rows, 0, filter);
-			builders[filter_vec.first].emplace_back(builder);
-		}
-	}
-	for (auto &chunk : state.data.Chunks()) {
-		for(auto &filter_builder_vec : builders) {
-			for(auto &filter_builder : filter_builder_vec.second) {
-				Vector hashes(LogicalType::HASH);
-				VectorOperations::Hash(chunk.data[filter_builder_vec.first], hashes, chunk.size());
-				filter_builder->PushNextBatch(arrow::internal::CpuInfo::AVX2, chunk.size(), (hash_t*)hashes.GetData());
+			if (num_threads == 1) {
+				auto builder = make_shared<BloomFilterBuilder_SingleThreaded>();
+				builder->Begin(1, arrow::internal::CpuInfo::AVX2, arrow::MemoryPool::CreateDefault().get(),
+							num_rows, 0, filter);
+				state.builders[filter_vec.first].emplace_back(builder);
+			} else {
+				auto builder = make_shared<BloomFilterBuilder_Parallel>();
+				builder->Begin(num_threads, arrow::internal::CpuInfo::AVX2, arrow::MemoryPool::CreateDefault().get(),
+							num_rows, 0, filter);
+				state.builders[filter_vec.first].emplace_back(builder);
 			}
 		}
 	}
+
+	state.ScheduleFinalize(pipeline, event);
 	return SinkFinalizeType::READY;
 }
 
 unique_ptr<GlobalSinkState> PhysicalCreateBF::GetGlobalSinkState(ClientContext &context) const {
-	return make_uniq<CreateBFGlobalState>(context, *this);
+	return make_uniq<CreateBFGlobalSinkState>(context, *this);
+}
+
+unique_ptr<LocalSinkState> PhysicalCreateBF::GetLocalSinkState(ExecutionContext &context) const {
+	return make_uniq<CreateBFLocalSinkState>(context.client, *this);
 }
 
 //===--------------------------------------------------------------------===//
 // Source
 //===--------------------------------------------------------------------===//
-class CreateBFSourceState : public GlobalSourceState {
+class CreateBFGlobalSourceState : public GlobalSourceState {
 public:
-	CreateBFSourceState(const PhysicalCreateBF &op) {
-		current_offset = 0;
+	CreateBFGlobalSourceState(ClientContext &context, const PhysicalCreateBF &op)
+		: context(context) {
 		D_ASSERT(op.sink_state);
-		auto &gstate = op.sink_state->Cast<CreateBFGlobalState>();
+		auto &gstate = op.sink_state->Cast<CreateBFGlobalSinkState>();
 		gstate.data.InitializeScan(scan_state);
 	}
 
-	idx_t current_offset;
-	ColumnDataScanState scan_state;
+	ColumnDataParallelScanState scan_state;
+	ClientContext &context;
+
+	idx_t MaxThreads() override {
+		return TaskScheduler::GetScheduler(context).NumberOfThreads();
+	}
+};
+
+class CreateBFLocalSourceState : public LocalSourceState {
+public:
+	CreateBFLocalSourceState() {
+	}
+
+	ColumnDataLocalScanState scan_state;
 };
 
 unique_ptr<GlobalSourceState> PhysicalCreateBF::GetGlobalSourceState(ClientContext &context) const {
-	return make_uniq<CreateBFSourceState>(*this);
+	return make_uniq<CreateBFGlobalSourceState>(context, *this);
+}
+
+unique_ptr<LocalSourceState> PhysicalCreateBF::GetLocalSourceState(ExecutionContext &context,
+	                                                 			   GlobalSourceState &gstate) const {
+	return make_uniq<CreateBFLocalSourceState>();
 }
 
 SourceResultType PhysicalCreateBF::GetData(ExecutionContext &context, DataChunk &chunk,
                                            OperatorSourceInput &input) const {
-	auto &gstate = sink_state->Cast<CreateBFGlobalState>();
-	auto &state = input.global_state.Cast<CreateBFSourceState>();
-	if (!gstate.data.Scan(state.scan_state, chunk)) {
+	auto &gstate = sink_state->Cast<CreateBFGlobalSinkState>();
+	auto &lstate = input.local_state.Cast<CreateBFLocalSourceState>();
+	auto &state = input.global_state.Cast<CreateBFGlobalSourceState>();
+	if (!gstate.data.Scan(state.scan_state, lstate.scan_state, chunk)) {
 		return SourceResultType::FINISHED;
 	}
 	return SourceResultType::HAVE_MORE_OUTPUT;

@@ -35,8 +35,7 @@ inline __m256i BlockedBloomFilter::block_id_avx2(__m256i hash) const {
   return result;
 }
 
-template <typename T>
-int64_t BlockedBloomFilter::FindImp_avx2(int64_t num_rows, const T* hashes,
+int64_t BlockedBloomFilter::FindImp_avx2(int64_t num_rows, const uint64_t* hashes,
                                          uint8_t* result_bit_vector) const {
   constexpr int unroll = 8;
 
@@ -44,15 +43,8 @@ int64_t BlockedBloomFilter::FindImp_avx2(int64_t num_rows, const T* hashes,
 
   for (int64_t i = 0; i < num_rows / unroll; ++i) {
     __m256i hash_A, hash_B;
-    if (sizeof(T) == sizeof(uint32_t)) {
-      hash_A = _mm256_cvtepu32_epi64(
-          _mm_loadu_si128(reinterpret_cast<const __m128i*>(hashes) + 2 * i + 0));
-      hash_B = _mm256_cvtepu32_epi64(
-          _mm_loadu_si128(reinterpret_cast<const __m128i*>(hashes) + 2 * i + 1));
-    } else {
-      hash_A = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(hashes) + 2 * i + 0);
-      hash_B = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(hashes) + 2 * i + 1);
-    }
+    hash_A = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(hashes) + 2 * i + 0);
+    hash_B = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(hashes) + 2 * i + 1);
     __m256i mask_A = mask_avx2(hash_A);
     __m256i mask_B = mask_avx2(hash_B);
     __m256i block_id_A = block_id_avx2(hash_A);
@@ -65,11 +57,6 @@ int64_t BlockedBloomFilter::FindImp_avx2(int64_t num_rows, const T* hashes,
   }
 
   return num_rows - (num_rows % unroll);
-}
-
-int64_t BlockedBloomFilter::Find_avx2(int64_t num_rows, const uint32_t* hashes,
-                                      uint8_t* result_bit_vector) const {
-  return FindImp_avx2(num_rows, hashes, result_bit_vector);
 }
 
 int64_t BlockedBloomFilter::Find_avx2(int64_t num_rows, const uint64_t* hashes,

@@ -5,6 +5,8 @@
 #include "arrow/util/bitmap_ops.h"  // CountSetBits
 #include "arrow/util/config.h"
 
+#include <iostream>
+
 namespace duckdb {
 BloomFilterMasks::BloomFilterMasks() {
   std::seed_seq seed{0, 0, 0, 0, 0, 0, 0, 0};
@@ -120,8 +122,7 @@ void BlockedBloomFilter::Insert(int64_t hardware_flags, int64_t num_rows,
   InsertImp(num_rows - num_processed, hashes + num_processed);
 }
 
-template <typename T>
-void BlockedBloomFilter::FindImp(int64_t num_rows, const T* hashes, SelectionVector &sel,
+void BlockedBloomFilter::FindImp(int64_t num_rows, int64_t num_preprocessed, const uint64_t* hashes, SelectionVector &sel,
                                  idx_t &result_count, bool enable_prefetch) const {
   int64_t num_processed = 0;
 
@@ -140,44 +141,47 @@ void BlockedBloomFilter::FindImp(int64_t num_rows, const T* hashes, SelectionVec
   }
   for (int64_t i = num_processed; i < num_rows; i++) {
     bool result = Find(hashes[i]);
-    sel.set_index(result_count, i);
+    sel.set_index(result_count, i + num_preprocessed);
     result_count += result;
   }
 }
 
-void BlockedBloomFilter::Find(int64_t hardware_flags, int64_t num_rows, const uint32_t* hashes,
-                              SelectionVector &sel, idx_t &result_count, bool enable_prefetch) const {
-  int64_t num_processed = 0;
-  /*
-  if (!(enable_prefetch && UsePrefetch()) &&
-      (hardware_flags & arrow::internal::CpuInfo::AVX2)) {
-    uint8_t *result_bit_vector = new uint8_t[num_rows / 8];
-    num_processed = Find_avx2(num_rows, hashes, result_bit_vector);
-    // Make sure that the results in bit vector for the remaining rows start at
-    // a byte boundary.
-    num_processed -= (num_processed % 8);
-    delete[] result_bit_vector;
+static inline int trailingzeroes(uint64_t input_num) {
+#ifdef __BMI2__
+  return _tzcnt_u64(input_num);
+#else
+  return __builtin_ctzll(input_num);
+#endif
+}
+
+void basic_decoder(SelectionVector &sel, idx_t &result_count, uint32_t idx,
+                   uint64_t bits) {
+  while (bits != 0) {
+    uint32_t value = static_cast<uint32_t>(idx) + trailingzeroes(bits);
+    sel.set_index(result_count, value);
+    bits = bits & (bits - 1);
+    result_count++;
   }
-  */
-  ARROW_DCHECK(num_processed % 8 == 0);
-  FindImp(num_rows - num_processed, hashes + num_processed,
-          sel, result_count, enable_prefetch);
 }
 
 void BlockedBloomFilter::Find(int64_t hardware_flags, int64_t num_rows, const uint64_t* hashes,
                               SelectionVector &sel, idx_t &result_count, bool enable_prefetch) const {
   int64_t num_processed = 0;
   /*
-  if (!(enable_prefetch && UsePrefetch()) &&
-      (hardware_flags & arrow::internal::CpuInfo::AVX2)) {
-    uint8_t *result_bit_vector = new uint8_t[num_rows / 8];
+  if (!(enable_prefetch && UsePrefetch()) && (hardware_flags & arrow::internal::CpuInfo::AVX2)) {
+    uint8_t *result_bit_vector = new uint8_t[num_rows];
+    memset(result_bit_vector, 0, num_rows);
     num_processed = Find_avx2(num_rows, hashes, result_bit_vector);
+    for (uint32_t i = 0; i < num_rows / 8; i++) {
+      uint64_t bits = ((uint64_t*)result_bit_vector)[i];
+      basic_decoder(sel, result_count, 64 * i, bits);
+    }
     num_processed -= (num_processed % 8);
     delete[] result_bit_vector;
   }
   */
   ARROW_DCHECK(num_processed % 8 == 0);
-  FindImp(num_rows - num_processed, hashes + num_processed,
+  FindImp(num_rows - num_processed, num_processed, hashes + num_processed,
           sel, result_count, enable_prefetch);
 }
 
@@ -278,31 +282,16 @@ arrow::Status BloomFilterBuilder_SingleThreaded::Begin(size_t /*num_threads*/,
 
 arrow::Status BloomFilterBuilder_SingleThreaded::PushNextBatch(size_t /*thread_index*/,
                                                         int64_t num_rows,
-                                                        const uint32_t* hashes) {
-  PushNextBatchImp(num_rows, hashes);
-  return arrow::Status::OK();
-}
-
-arrow::Status BloomFilterBuilder_SingleThreaded::PushNextBatch(size_t /*thread_index*/,
-                                                        int64_t num_rows,
                                                         const uint64_t* hashes) {
   PushNextBatchImp(num_rows, hashes);
   return arrow::Status::OK();
 }
 
-template <typename T>
 void BloomFilterBuilder_SingleThreaded::PushNextBatchImp(int64_t num_rows,
-                                                         const T* hashes) {
+                                                         const uint64_t* hashes) {
   build_target_->Insert(hardware_flags_, num_rows, hashes);
 }
 
-std::unique_ptr<BloomFilterBuilder> BloomFilterBuilder::Make(BloomFilterBuildStrategy strategy) {
-  strategy = BloomFilterBuildStrategy::SINGLE_THREADED;
-  std::unique_ptr<BloomFilterBuilder> impl{new BloomFilterBuilder_SingleThreaded()};
-  return impl;
-}
-
-/*
 arrow::Status BloomFilterBuilder_Parallel::Begin(size_t num_threads, int64_t hardware_flags,
                                                  arrow::MemoryPool* pool, int64_t num_rows,
                                                  int64_t num_batches,
@@ -322,20 +311,13 @@ arrow::Status BloomFilterBuilder_Parallel::Begin(size_t num_threads, int64_t har
 }
 
 arrow::Status BloomFilterBuilder_Parallel::PushNextBatch(size_t thread_id, int64_t num_rows,
-                                                  const uint32_t* hashes) {
-  PushNextBatchImp(thread_id, num_rows, hashes);
-  return arrow::Status::OK();
-}
-
-arrow::Status BloomFilterBuilder_Parallel::PushNextBatch(size_t thread_id, int64_t num_rows,
                                                   const uint64_t* hashes) {
   PushNextBatchImp(thread_id, num_rows, hashes);
   return arrow::Status::OK();
 }
 
-template <typename T>
 void BloomFilterBuilder_Parallel::PushNextBatchImp(size_t thread_id, int64_t num_rows,
-                                                   const T* hashes) {
+                                                   const uint64_t* hashes) {
   // Partition IDs are calculated using the higher bits of the block ID.  This
   // ensures that each block is contained entirely within a partition and prevents
   // concurrent access to a block.
@@ -356,7 +338,7 @@ void BloomFilterBuilder_Parallel::PushNextBatchImp(size_t thread_id, int64_t num
   uint64_t* partitioned_hashes = local_state.partitioned_hashes_64.data();
   int* unprocessed_partition_ids = local_state.unprocessed_partition_ids.data();
 
-  arrow::acero::PartitionSort::Eval(
+  PartitionSort::Eval(
       num_rows, num_prtns, partition_ranges,
       [=](int64_t row_id) {
         return (hashes[row_id] >> (kPrtnIdBitOffset)) & (num_prtns - 1);
@@ -396,5 +378,4 @@ void BloomFilterBuilder_Parallel::CleanUp() {
   thread_local_states_.clear();
   prtn_locks_.CleanUp();
 }
-*/
 }

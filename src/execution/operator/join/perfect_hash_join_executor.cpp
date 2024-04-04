@@ -11,7 +11,8 @@ PerfectHashJoinExecutor::PerfectHashJoinExecutor(const PhysicalHashJoin &join_p,
 }
 
 bool PerfectHashJoinExecutor::CanDoPerfectHashJoin() {
-	return perfect_join_statistics.is_build_small;
+	return false;
+	// return perfect_join_statistics.is_build_small;
 }
 
 //===--------------------------------------------------------------------===//

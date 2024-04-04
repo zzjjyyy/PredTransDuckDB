@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <unordered_map>
 
 #include "arrow/acero/util.h"
 #include "arrow/memory_pool.h"
@@ -12,6 +13,7 @@
 #include "arrow/status.h"
 #include "duckdb/planner/column_binding.hpp"
 #include "duckdb/common/types/selection_vector.hpp"
+#include "duckdb/optimizer/predicate_transfer/bloom_filter/partition_util.hpp"
 
 namespace duckdb {
 
@@ -96,6 +98,7 @@ struct BloomFilterMasks {
 //
 class BlockedBloomFilter {
   friend class BloomFilterBuilder_SingleThreaded;
+  // friend class BloomFilterBuilder_Parallel;
 
 public:
   BlockedBloomFilter(ColumnBinding column_binding)
@@ -114,8 +117,6 @@ public:
   // Uses SIMD if available for smaller Bloom filters.
   // Uses memory prefetching for larger Bloom filters.
   //
-  void Find(int64_t hardware_flags, int64_t num_rows, const uint32_t* hashes,
-            SelectionVector &sel, idx_t &result_count, bool enable_prefetch = true) const;
   void Find(int64_t hardware_flags, int64_t num_rows, const uint64_t* hashes,
             SelectionVector &sel, idx_t &result_count, bool enable_prefetch = true) const;
 
@@ -229,8 +230,7 @@ private:
   template <typename T>
   inline void InsertImp(int64_t num_rows, const T* hashes);
 
-  template <typename T>
-  inline void FindImp(int64_t num_rows, const T* hashes, SelectionVector &sel,
+  inline void FindImp(int64_t num_rows, int64_t num_preprocessed, const uint64_t* hashes, SelectionVector &sel,
                       idx_t &result_count, bool enable_prefetch) const;
 
   void SingleFold(int num_folds);
@@ -241,12 +241,9 @@ private:
   int64_t Insert_avx2(int64_t num_rows, const uint64_t* hashes);
   template <typename T>
   int64_t InsertImp_avx2(int64_t num_rows, const T* hashes);
-  int64_t Find_avx2(int64_t num_rows, const uint32_t* hashes,
-                    uint8_t* result_bit_vector) const;
   int64_t Find_avx2(int64_t num_rows, const uint64_t* hashes,
                     uint8_t* result_bit_vector) const;
-  template <typename T>
-  int64_t FindImp_avx2(int64_t num_rows, const T* hashes,
+  int64_t FindImp_avx2(int64_t num_rows, const uint64_t* hashes,
                        uint8_t* result_bit_vector) const;
 
   bool UsePrefetch() const {
@@ -310,11 +307,8 @@ public:
 
   virtual int64_t num_tasks() const { return 0; }
   virtual arrow::Status PushNextBatch(size_t thread_index, int64_t num_rows,
-                               const uint32_t* hashes) = 0;
-  virtual arrow::Status PushNextBatch(size_t thread_index, int64_t num_rows,
                                const uint64_t* hashes) = 0;
   virtual void CleanUp() {}
-  static std::unique_ptr<BloomFilterBuilder> Make(BloomFilterBuildStrategy strategy);
 };
 
 class BloomFilterBuilder_SingleThreaded : public BloomFilterBuilder {
@@ -324,20 +318,15 @@ public:
                       BlockedBloomFilter* build_target) override;
 
   arrow::Status PushNextBatch(size_t /*thread_index*/, int64_t num_rows,
-                       const uint32_t* hashes) override;
-
-  arrow::Status PushNextBatch(size_t /*thread_index*/, int64_t num_rows,
                        const uint64_t* hashes) override;
 
 private:
-  template <typename T>
-  void PushNextBatchImp(int64_t num_rows, const T* hashes);
+  void PushNextBatchImp(int64_t num_rows, const uint64_t* hashes);
 
   int64_t hardware_flags_;
   BlockedBloomFilter* build_target_;
 };
 
-/*
 class ARROW_ACERO_EXPORT BloomFilterBuilder_Parallel : public BloomFilterBuilder {
  public:
   arrow::Status Begin(size_t num_threads, int64_t hardware_flags, arrow::MemoryPool* pool,
@@ -345,16 +334,12 @@ class ARROW_ACERO_EXPORT BloomFilterBuilder_Parallel : public BloomFilterBuilder
                       BlockedBloomFilter* build_target) override;
 
   arrow::Status PushNextBatch(size_t thread_id, int64_t num_rows,
-                              const uint32_t* hashes) override;
-
-  arrow::Status PushNextBatch(size_t thread_id, int64_t num_rows,
                               const uint64_t* hashes) override;
 
   void CleanUp() override;
 
  private:
-  template <typename T>
-  void PushNextBatchImp(size_t thread_id, int64_t num_rows, const T* hashes);
+  void PushNextBatchImp(size_t thread_id, int64_t num_rows, const uint64_t* hashes);
 
   int64_t hardware_flags_;
   BlockedBloomFilter* build_target_;
@@ -366,7 +351,6 @@ class ARROW_ACERO_EXPORT BloomFilterBuilder_Parallel : public BloomFilterBuilder
     std::vector<int> unprocessed_partition_ids;
   };
   std::vector<ThreadLocalState> thread_local_states_;
-  arrow::acero::PartitionLocks prtn_locks_;
+  PartitionLocks prtn_locks_;
 };
-*/
 }

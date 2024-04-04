@@ -32,8 +32,6 @@ protected:
 	OperatorResultType ExecuteInternal(ExecutionContext &context, DataChunk &input, DataChunk &chunk,
 	                                   GlobalOperatorState &gstate, OperatorState &state) const override;
 
-	
-
 private:
     idx_t counter = 0;
 };

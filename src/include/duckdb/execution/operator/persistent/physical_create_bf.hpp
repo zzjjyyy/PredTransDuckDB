@@ -17,7 +17,10 @@ public:
 
 public:
 	// Source interface
-	unique_ptr<GlobalSourceState> GetGlobalSourceState(ClientContext &context) const;
+	unique_ptr<GlobalSourceState> GetGlobalSourceState(ClientContext &context) const override;
+
+	unique_ptr<LocalSourceState> GetLocalSourceState(ExecutionContext &context,
+	                                                 GlobalSourceState &gstate) const override;
 
 	SourceResultType GetData(ExecutionContext &context, DataChunk &chunk, OperatorSourceInput &input) const override;
 
@@ -25,15 +28,27 @@ public:
 		return true;
 	}
 
+	bool ParallelSource() const override {
+		return true;
+	}
+
 public:
 	// Sink interface
 	SinkResultType Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const override;
 	
+	SinkCombineResultType Combine(ExecutionContext &context, OperatorSinkCombineInput &input) const override;
+
 	SinkFinalizeType Finalize(Pipeline &pipeline, Event &event, ClientContext &context, OperatorSinkFinalizeInput &input) const override;
 
 	unique_ptr<GlobalSinkState> GetGlobalSinkState(ClientContext &context) const override;
 
+	unique_ptr<LocalSinkState> GetLocalSinkState(ExecutionContext &context) const override;
+
 	bool IsSink() const override {
+		return true;
+	}
+
+	bool ParallelSink() const override {
 		return true;
 	}
 
@@ -45,7 +60,5 @@ public:
 
 private:
     idx_t counter = 0;
-
-    // unordered_map<idx_t, vector<shared_ptr<BloomFilterBuilder_SingleThreaded>>> builders;
 };
 }
