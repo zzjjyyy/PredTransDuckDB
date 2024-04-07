@@ -73,6 +73,10 @@ public:
 	//! Set the allocator flush threshold
 	void SetAllocatorFlushTreshold(idx_t threshold);
 
+public:
+	//! The active background threads of the task scheduler
+	vector<unique_ptr<SchedulerThread>> threads;
+	
 private:
 	void SetThreadsInternal(int32_t n);
 
@@ -82,8 +86,6 @@ private:
 	unique_ptr<ConcurrentQueue> queue;
 	//! Lock for modifying the thread count
 	mutex thread_lock;
-	//! The active background threads of the task scheduler
-	vector<unique_ptr<SchedulerThread>> threads;
 	//! Markers used by the various threads, if the markers are set to "false" the thread execution is stopped
 	vector<unique_ptr<atomic<bool>>> markers;
 	//! The threshold after which to flush the allocator after completing a task

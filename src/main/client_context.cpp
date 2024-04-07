@@ -44,9 +44,9 @@
 #include "duckdb/storage/data_table.hpp"
 
 #include <sys/resource.h>
+#include <sys/time.h>
 
 namespace duckdb {
-
 struct ActiveQueryContext {
 	//! The query that is currently being executed
 	string query;
@@ -805,7 +805,9 @@ static double timeDiff(struct timeval *pStart, struct timeval *pEnd){
 }
 
 unique_ptr<QueryResult> ClientContext::Query(const string &query, bool allow_stream_result) {
-	getrusage(RUSAGE_SELF, &sBegin);
+	struct timeval t1, t2;
+	gettimeofday(&t1, NULL);
+	// getrusage(RUSAGE_SELF, &sBegin);
 	auto lock = LockContext();
 
 	PreservedError error;
@@ -854,13 +856,16 @@ unique_ptr<QueryResult> ClientContext::Query(const string &query, bool allow_str
 			last_result = last_result->next.get();
 		}
 	}
-	struct rusage sEnd;
-	getrusage(RUSAGE_SELF, &sEnd);
-	FILE* fp = fopen("result.txt", "a+");
-	double usr = timeDiff(&sBegin.ru_utime, &sEnd.ru_utime);
-	double sys = timeDiff(&sBegin.ru_stime, &sEnd.ru_stime);
-	if(usr + sys > 0.01) {
-		fprintf(fp, "%f\n", usr + sys);
+	// struct rusage sEnd;
+	// getrusage(RUSAGE_SELF, &sEnd);
+	gettimeofday(&t2, NULL);
+	size_t found = query.find("SELECT");
+	if(found != std::string::npos) {
+		FILE* fp = fopen("result.txt", "a+");
+		double totalTime = (t2.tv_sec - t1.tv_sec) + (t2.tv_usec - t1.tv_usec) / 1000000.0;
+		// double usr = timeDiff(&sBegin.ru_utime, &sEnd.ru_utime);
+		// double sys = timeDiff(&sBegin.ru_stime, &sEnd.ru_stime);
+		fprintf(fp, "%lf\n", totalTime);
 		fclose(fp);
 	}
 	return result;
