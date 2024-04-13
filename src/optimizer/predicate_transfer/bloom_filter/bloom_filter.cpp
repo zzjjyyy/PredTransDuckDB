@@ -122,30 +122,6 @@ void BlockedBloomFilter::Insert(int64_t hardware_flags, int64_t num_rows,
   InsertImp(num_rows - num_processed, hashes + num_processed);
 }
 
-void BlockedBloomFilter::FindImp(int64_t num_rows, int64_t num_preprocessed, const uint64_t* hashes, SelectionVector &sel,
-                                 idx_t &result_count, bool enable_prefetch) const {
-  int64_t num_processed = 0;
-
-  if (enable_prefetch && UsePrefetch()) {
-    constexpr int kPrefetchIterations = 16;
-    for (int64_t i = 0; i < num_rows - kPrefetchIterations; ++i) {
-      PREFETCH(blocks_ + block_id(hashes[i + kPrefetchIterations]));
-      bool result = Find(hashes[i]);
-      sel.set_index(result_count, i);
-      result_count += result;
-    }
-    num_processed = num_rows - kPrefetchIterations;
-  }
-  if(num_processed < 0) {
-    num_processed = 0;
-  }
-  for (int64_t i = num_processed; i < num_rows; i++) {
-    bool result = Find(hashes[i]);
-    sel.set_index(result_count, i + num_preprocessed);
-    result_count += result;
-  }
-}
-
 static inline int trailingzeroes(uint64_t input_num) {
 #ifdef __BMI2__
   return _tzcnt_u64(input_num);
@@ -164,10 +140,55 @@ void basic_decoder(SelectionVector &sel, idx_t &result_count, uint32_t idx,
   }
 }
 
+void BlockedBloomFilter::FindImp(int64_t num_rows, int64_t num_preprocessed, const uint64_t* hashes, SelectionVector &sel,
+                                 idx_t &result_count, bool enable_prefetch) const {
+  int64_t num_processed = 0;
+  if (enable_prefetch && UsePrefetch()) {
+    constexpr int kPrefetchIterations = 16;
+    for (int64_t i = 0; i < num_rows - kPrefetchIterations; ++i) {
+      PREFETCH(blocks_ + block_id(hashes[i + kPrefetchIterations]));
+      bool result = Find(hashes[i]);
+      sel.set_index(result_count, i);
+      result_count += result;
+    }
+    num_processed = num_rows - kPrefetchIterations;
+  }
+  
+  if(num_processed < 0) {
+    num_processed = 0;
+  }
+  for (int64_t i = num_processed; i < num_rows; i++) {
+    bool result = Find(hashes[i]);
+    sel.set_index(result_count, i + num_preprocessed);
+    result_count += result;
+  }
+  /*
+  uint64_t bits = 0ULL;
+  uint8_t *result_bit_vector = new uint8_t[num_rows];
+  memset(result_bit_vector, 0, num_rows);
+  for (int64_t i = num_processed; i < num_rows; ++i) {
+    uint64_t result = Find(hashes[i]) ? 1ULL : 0ULL;
+    bits |= result << (i & 63);
+    if ((i & 63) == 63) {
+      reinterpret_cast<uint64_t*>(result_bit_vector)[i / 64] = bits;
+      bits = 0ULL;
+    }
+  }
+
+  for (int i = 0; i < arrow::bit_util::CeilDiv(num_rows % 64, 8); ++i) {
+    result_bit_vector[num_rows / 64 * 8 + i] = static_cast<uint8_t>(bits >> (i * 8));
+  }
+  for (uint32_t i = 0; i < num_rows / 64 + 1; i++) {
+      uint64_t bits = ((uint64_t*)result_bit_vector)[i];
+      basic_decoder(sel, result_count, 64 * i, bits);
+  }
+  */
+}
+
 void BlockedBloomFilter::Find(int64_t hardware_flags, int64_t num_rows, const uint64_t* hashes,
                               SelectionVector &sel, idx_t &result_count, bool enable_prefetch) const {
   int64_t num_processed = 0;
-  /*
+
   if (!(enable_prefetch && UsePrefetch()) && (hardware_flags & arrow::internal::CpuInfo::AVX2)) {
     uint8_t *result_bit_vector = new uint8_t[num_rows];
     memset(result_bit_vector, 0, num_rows);
@@ -179,7 +200,7 @@ void BlockedBloomFilter::Find(int64_t hardware_flags, int64_t num_rows, const ui
     num_processed -= (num_processed % 8);
     delete[] result_bit_vector;
   }
-  */
+
   ARROW_DCHECK(num_processed % 8 == 0);
   FindImp(num_rows - num_processed, num_processed, hashes + num_processed,
           sel, result_count, enable_prefetch);

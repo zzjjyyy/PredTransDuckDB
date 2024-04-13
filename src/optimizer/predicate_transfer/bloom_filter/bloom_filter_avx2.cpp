@@ -51,7 +51,7 @@ int64_t BlockedBloomFilter::FindImp_avx2(int64_t num_rows, const uint64_t* hashe
     __m256i block_id_B = block_id_avx2(hash_B);
     __m256i block_A = _mm256_i64gather_epi64(blocks, block_id_A, sizeof(uint64_t));
     __m256i block_B = _mm256_i64gather_epi64(blocks, block_id_B, sizeof(uint64_t));
-    uint64_t result_bytes = _mm256_movemask_epi8(_mm256_cmpeq_epi64(_mm256_and_si256(block_A, mask_A), mask_A));
+    uint64_t result_bytes = static_cast<uint32_t>(_mm256_movemask_epi8(_mm256_cmpeq_epi64(_mm256_and_si256(block_A, mask_A), mask_A)));
     result_bytes |= static_cast<uint64_t>(_mm256_movemask_epi8(_mm256_cmpeq_epi64(_mm256_and_si256(block_B, mask_B), mask_B))) << 32;
     result_bit_vector[i] = static_cast<uint8_t>(_mm256_movemask_epi8(_mm256_set1_epi64x(result_bytes)));
   }
