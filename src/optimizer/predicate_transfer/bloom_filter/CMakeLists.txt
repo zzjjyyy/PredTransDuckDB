@@ -4,8 +4,7 @@ add_library_unity(
   bloom_filter_avx2.cpp
   bloom_filter_use_kernel.cpp
   bloom_filter.cpp
-  partition_util.cpp
-  universal_hash_function.cpp)
+  partition_util.cpp)
 set(ALL_OBJECT_FILES
     ${ALL_OBJECT_FILES} $<TARGET_OBJECTS:duckdb_bloom_filter>
     PARENT_SCOPE)
