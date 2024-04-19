@@ -124,14 +124,6 @@ public:
     return column_binding_;
   }
 
-  BlockedBloomFilter* CopywithNewColBinding(ColumnBinding column_binding) {
-    auto copy = new BlockedBloomFilter(column_binding, log_num_blocks_, use_64bit_hashes_);
-    copy->blocks_ = this->blocks_;
-    copy->buf_ = this->buf_;
-    copy->private_masks_ = this->private_masks_;
-    return copy;
-  }
-
   int log_num_blocks() const { return log_num_blocks_; }
 
   bool use_64bit_hashes() const { return use_64bit_hashes_; }
@@ -194,7 +186,6 @@ public:
 
   arrow::Status CreateEmpty(int64_t num_rows_to_insert, arrow::MemoryPool* pool);
 
-  void Insert(int64_t hardware_flags, int64_t num_rows, const uint32_t* hashes);
   void Insert(int64_t hardware_flags, int64_t num_rows, const uint64_t* hashes);
 
 private:
