@@ -105,15 +105,6 @@ void BlockedBloomFilter::InsertImp(int64_t num_rows, const T* hashes) {
 }
 
 void BlockedBloomFilter::Insert(int64_t hardware_flags, int64_t num_rows,
-                                const uint32_t* hashes) {
-  int64_t num_processed = 0;
-  if (hardware_flags & arrow::internal::CpuInfo::AVX2) {
-    num_processed = Insert_avx2(num_rows, hashes);
-  }
-  InsertImp(num_rows - num_processed, hashes + num_processed);
-}
-
-void BlockedBloomFilter::Insert(int64_t hardware_flags, int64_t num_rows,
                                 const uint64_t* hashes) {
   int64_t num_processed = 0;
   if (hardware_flags & arrow::internal::CpuInfo::AVX2) {
@@ -130,8 +121,8 @@ static inline int trailingzeroes(uint64_t input_num) {
 #endif
 }
 
-void basic_decoder(SelectionVector &sel, idx_t &result_count, uint32_t idx,
-                   uint64_t bits) {
+inline void basic_decoder(SelectionVector &sel, idx_t &result_count, uint32_t idx,
+                          uint64_t bits) {
   while (bits != 0) {
     uint32_t value = static_cast<uint32_t>(idx) + trailingzeroes(bits);
     sel.set_index(result_count, value);
@@ -162,27 +153,6 @@ void BlockedBloomFilter::FindImp(int64_t num_rows, int64_t num_preprocessed, con
     sel.set_index(result_count, i + num_preprocessed);
     result_count += result;
   }
-  /*
-  uint64_t bits = 0ULL;
-  uint8_t *result_bit_vector = new uint8_t[num_rows];
-  memset(result_bit_vector, 0, num_rows);
-  for (int64_t i = num_processed; i < num_rows; ++i) {
-    uint64_t result = Find(hashes[i]) ? 1ULL : 0ULL;
-    bits |= result << (i & 63);
-    if ((i & 63) == 63) {
-      reinterpret_cast<uint64_t*>(result_bit_vector)[i / 64] = bits;
-      bits = 0ULL;
-    }
-  }
-
-  for (int i = 0; i < arrow::bit_util::CeilDiv(num_rows % 64, 8); ++i) {
-    result_bit_vector[num_rows / 64 * 8 + i] = static_cast<uint8_t>(bits >> (i * 8));
-  }
-  for (uint32_t i = 0; i < num_rows / 64 + 1; i++) {
-      uint64_t bits = ((uint64_t*)result_bit_vector)[i];
-      basic_decoder(sel, result_count, 64 * i, bits);
-  }
-  */
 }
 
 void BlockedBloomFilter::Find(int64_t hardware_flags, int64_t num_rows, const uint64_t* hashes,
@@ -190,10 +160,10 @@ void BlockedBloomFilter::Find(int64_t hardware_flags, int64_t num_rows, const ui
   int64_t num_processed = 0;
 
   if (!(enable_prefetch && UsePrefetch()) && (hardware_flags & arrow::internal::CpuInfo::AVX2)) {
-    uint8_t *result_bit_vector = new uint8_t[num_rows];
-    memset(result_bit_vector, 0, num_rows);
+    uint8_t *result_bit_vector = new uint8_t[num_rows / 8 + 8];
+    memset(result_bit_vector, 0, num_rows / 8 + 8);
     num_processed = Find_avx2(num_rows, hashes, result_bit_vector);
-    for (uint32_t i = 0; i < num_rows / 8; i++) {
+    for (uint32_t i = 0; i < num_rows / 64 + 1; i++) {
       uint64_t bits = ((uint64_t*)result_bit_vector)[i];
       basic_decoder(sel, result_count, 64 * i, bits);
     }

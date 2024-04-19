@@ -41,7 +41,6 @@ public:
 
 SinkResultType PhysicalCreateBF::Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const {
 	auto &state = input.local_state.Cast<CreateBFLocalSinkState>();
-	chunk.Flatten();
 	state.data.Append(chunk);
 	return SinkResultType::NEED_MORE_INPUT;
 }
