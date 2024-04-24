@@ -303,7 +303,6 @@ PredicateTransferOptimizer::BuildCreateUsePair(LogicalOperator &node,
 											   vector<idx_t> &depend_nodes,
 											   bool reverse) {
 	auto use_bf = BuildUseOperator(node, temp_result_to_use, depend_nodes, reverse);
-	make_uniq<LogicalUseBF>(temp_result_to_use);
 	auto create_bf = make_uniq<LogicalCreateBF>(temp_result_to_create);
 	create_bf->AddChild(unique_ptr_cast<LogicalUseBF, LogicalOperator>(std::move(use_bf)));
 	create_bf->has_estimated_cardinality = true;
