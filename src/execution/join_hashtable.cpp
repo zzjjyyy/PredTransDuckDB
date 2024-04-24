@@ -461,6 +461,11 @@ void ScanStructure::AdvancePointers(const SelectionVector &sel, idx_t sel_count)
 		if (ptrs[idx]) {
 			this->sel_vector.set_index(new_count++, idx);
 		}
+		/*
+		bool is_not_null = (ptrs[idx] != nullptr);
+		this->sel_vector.set_index(new_count, idx);
+		new_count += is_not_null;
+		*/
 	}
 	this->count = new_count;
 }
@@ -475,6 +480,11 @@ void ScanStructure::InitializeSelectionVector(const SelectionVector *&current_se
 		if (ptrs[idx]) {
 			sel_vector.set_index(non_empty_count++, idx);
 		}
+		/*
+		bool is_not_null = (ptrs[idx] != nullptr);
+		sel_vector.set_index(non_empty_count, idx);
+		non_empty_count += is_not_null;
+		*/
 	}
 	count = non_empty_count;
 }

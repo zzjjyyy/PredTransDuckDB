@@ -91,7 +91,8 @@ arrow::Status BlockedBloomFilter::CreateEmpty(int64_t num_rows_to_insert, arrow:
   //
   int64_t buffer_size = num_blocks_ * sizeof(uint64_t);
   ARROW_ASSIGN_OR_RAISE(buf_, AllocateBuffer(buffer_size, pool));
-  blocks_ = reinterpret_cast<uint64_t*>(buf_->mutable_data());
+  // blocks_ = reinterpret_cast<uint64_t*>(buf_->mutable_data());
+  blocks_ = reinterpret_cast<std::atomic<uint64_t>*>(buf_->mutable_data());
   memset(blocks_, 0, buffer_size);
 
   return arrow::Status::OK();
@@ -192,11 +193,8 @@ void BlockedBloomFilter::Fold() {
     int64_t num_bits_set = 0;
     int batch_size_max = 65536;
     for (int64_t i = 0; i < num_bits; i += batch_size_max) {
-      int batch_size =
-          static_cast<int>(std::min(num_bits - i, static_cast<int64_t>(batch_size_max)));
-      num_bits_set +=
-          arrow::internal::CountSetBits(reinterpret_cast<const uint8_t*>(blocks_) + i / 8,
-                                        /*offset=*/0, batch_size);
+      int batch_size = static_cast<int>(std::min(num_bits - i, static_cast<int64_t>(batch_size_max)));
+      num_bits_set += arrow::internal::CountSetBits(reinterpret_cast<const uint8_t*>(blocks_) + i / 8, 0, batch_size);
     }
 
     // If at least 1/4 of bits is set then stop
@@ -223,12 +221,13 @@ void BlockedBloomFilter::SingleFold(int num_folds) {
   //
   int64_t num_slices = 1LL << num_folds;
   int64_t num_slice_blocks = (num_blocks_ >> num_folds);
-  uint64_t* target_slice = blocks_;
-
+  // uint64_t* target_slice = blocks_;
+  std::atomic<uint64_t>* target_slice = blocks_;
   // OR bits of all the slices and store result in the first slice
   //
   for (int64_t slice = 1; slice < num_slices; ++slice) {
-    const uint64_t* source_slice = blocks_ + slice * num_slice_blocks;
+    // const uint64_t* source_slice = blocks_ + slice * num_slice_blocks;
+    std::atomic<uint64_t>* source_slice = blocks_ + slice * num_slice_blocks;
     for (int i = 0; i < num_slice_blocks; ++i) {
       target_slice[i] |= source_slice[i];
     }
@@ -255,8 +254,7 @@ bool BlockedBloomFilter::IsSameAs(const BlockedBloomFilter* other) const {
 }
 
 int64_t BlockedBloomFilter::NumBitsSet() const {
-  return arrow::internal::CountSetBits(reinterpret_cast<const uint8_t*>(blocks_),
-                                       /*offset=*/0, (1LL << log_num_blocks()) * 64);
+  return arrow::internal::CountSetBits(reinterpret_cast<const uint8_t*>(blocks_), 0, (1LL << log_num_blocks()) * 64);
 }
 
 arrow::Status BloomFilterBuilder_SingleThreaded::Begin(size_t /*num_threads*/,
@@ -348,15 +346,12 @@ void BloomFilterBuilder_Parallel::PushNextBatchImp(size_t thread_id, int64_t num
   while (num_unprocessed_partitions > 0) {
     int locked_prtn_id;
     int locked_prtn_id_pos;
-    prtn_locks_.AcquirePartitionLock(thread_id, num_unprocessed_partitions,
-                                     unprocessed_partition_ids,
-                                     false, -1,
-                                     &locked_prtn_id, &locked_prtn_id_pos);
+    prtn_locks_.AcquirePartitionLock(thread_id, num_unprocessed_partitions, unprocessed_partition_ids, false, -1, &locked_prtn_id, &locked_prtn_id_pos);
     build_target_->Insert(
         hardware_flags_,
         partition_ranges[locked_prtn_id + 1] - partition_ranges[locked_prtn_id],
         partitioned_hashes + partition_ranges[locked_prtn_id]);
-    prtn_locks_.ReleasePartitionLock(locked_prtn_id);
+    // prtn_locks_.ReleasePartitionLock(locked_prtn_id);
     if (locked_prtn_id_pos < num_unprocessed_partitions - 1) {
       unprocessed_partition_ids[locked_prtn_id_pos] =
           unprocessed_partition_ids[num_unprocessed_partitions - 1];

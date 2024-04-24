@@ -90,9 +90,9 @@ public:
 			sink.data.InitializeScanChunk(chunk);
 			sink.data.FetchChunk(i, chunk);
 			for(auto &filter_builder_vec : sink.builders) {
+				Vector hashes(LogicalType::HASH);
+				VectorOperations::Hash(chunk.data[filter_builder_vec.first], hashes, chunk.size());
 				for(auto &filter_builder : filter_builder_vec.second) {
-					Vector hashes(LogicalType::HASH);
-					VectorOperations::Hash(chunk.data[filter_builder_vec.first], hashes, chunk.size());
 					filter_builder->PushNextBatch(thread_id, chunk.size(), (hash_t*)hashes.GetData());
 				}
 			}
@@ -164,13 +164,11 @@ SinkFinalizeType PhysicalCreateBF::Finalize(Pipeline &pipeline, Event &event, Cl
 		for(auto &filter : filter_vec.second) {
 			if (num_threads == 1) {
 				auto builder = make_shared<BloomFilterBuilder_SingleThreaded>();
-				builder->Begin(1, arrow::internal::CpuInfo::AVX2, arrow::MemoryPool::CreateDefault().get(),
-							num_rows, 0, filter);
+				builder->Begin(1, arrow::internal::CpuInfo::AVX2, arrow::MemoryPool::CreateDefault().get(), num_rows, 0, filter);
 				state.builders[filter_vec.first].emplace_back(builder);
 			} else {
 				auto builder = make_shared<BloomFilterBuilder_Parallel>();
-				builder->Begin(num_threads, arrow::internal::CpuInfo::AVX2, arrow::MemoryPool::CreateDefault().get(),
-							num_rows, 0, filter);
+				builder->Begin(num_threads, arrow::internal::CpuInfo::AVX2, arrow::MemoryPool::CreateDefault().get(), num_rows, 0, filter);
 				state.builders[filter_vec.first].emplace_back(builder);
 			}
 		}

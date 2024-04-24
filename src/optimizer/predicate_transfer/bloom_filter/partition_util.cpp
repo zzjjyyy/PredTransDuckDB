@@ -38,6 +38,7 @@ bool PartitionLocks::AcquirePartitionLock(size_t thread_id, int num_prtns_to_try
                                           const int* prtn_ids_to_try, bool limit_retries,
                                           int max_retries, int* locked_prtn_id,
                                           int* locked_prtn_id_pos) {
+  /*
   int trial = 0;
   while (!limit_retries || trial <= max_retries) {
     int prtn_id_pos = random_int(thread_id, num_prtns_to_try);
@@ -58,6 +59,10 @@ bool PartitionLocks::AcquirePartitionLock(size_t thread_id, int num_prtns_to_try
   *locked_prtn_id = -1;
   *locked_prtn_id_pos = -1;
   return false;
+  */
+  *locked_prtn_id_pos = random_int(thread_id, num_prtns_to_try);
+  *locked_prtn_id = prtn_ids_to_try[*locked_prtn_id_pos];
+  return true;
 }
 
 void PartitionLocks::ReleasePartitionLock(int prtn_id) {
