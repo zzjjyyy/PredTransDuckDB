@@ -191,7 +191,9 @@ public:
 private:
   inline void Insert(uint64_t hash) {
     uint64_t m = mask(hash);
-    std::atomic<uint64_t>& b = blocks_[block_id(hash)];
+    // uint64_t &b = blocks_[block_id(hash)];
+    // b |= m;
+    std::atomic<uint64_t> &b = blocks_[block_id(hash)];
     b.fetch_or(m);
   }
 
@@ -243,6 +245,7 @@ private:
 
   void SetBuf(const std::shared_ptr<arrow::Buffer> &buf) {
     buf_ = buf;
+    // blocks_ = reinterpret_cast<uint64_t*>(const_cast<uint8_t*>(buf_->data()));
     blocks_ = reinterpret_cast<std::atomic<uint64_t>*>(const_cast<uint8_t*>(buf_->data()));
   }
 
@@ -266,10 +269,9 @@ private:
   bool use_64bit_hashes_;
 
   // Buffer allocated to store an array of power of 2 64-bit blocks.
-  //
   std::shared_ptr<arrow::Buffer> buf_;
+  
   // Pointer to mutable data owned by Buffer
-  //
   // uint64_t* blocks_;
   std::atomic<uint64_t>* blocks_;
 

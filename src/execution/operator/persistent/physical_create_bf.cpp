@@ -196,10 +196,13 @@ public:
 		D_ASSERT(op.sink_state);
 		auto &gstate = op.sink_state->Cast<CreateBFGlobalSinkState>();
 		gstate.data.InitializeScan(scan_state);
+		partition_id = 0;
 	}
 
 	ColumnDataParallelScanState scan_state;
 	ClientContext &context;
+	vector<pair<idx_t, idx_t>> chunks_todo;
+	std::atomic<idx_t> partition_id;
 
 	idx_t MaxThreads() override {
 		return TaskScheduler::GetScheduler(context).NumberOfThreads();
@@ -209,13 +212,35 @@ public:
 class CreateBFLocalSourceState : public LocalSourceState {
 public:
 	CreateBFLocalSourceState() {
+		local_current_chunk_id = 0;
+		initial = true;
 	}
-
 	ColumnDataLocalScanState scan_state;
+
+	idx_t local_current_chunk_id;
+	idx_t local_partition_id;
+	idx_t chunk_from;
+	idx_t chunk_to;
+	bool initial;
 };
 
 unique_ptr<GlobalSourceState> PhysicalCreateBF::GetGlobalSourceState(ClientContext &context) const {
-	return make_uniq<CreateBFGlobalSourceState>(context, *this);
+	auto state = make_uniq<CreateBFGlobalSourceState>(context, *this);
+	auto &gstate = sink_state->Cast<CreateBFGlobalSinkState>();
+	auto chunk_count = gstate.data.ChunkCount();
+	const idx_t num_threads = TaskScheduler::GetScheduler(context).NumberOfThreads();
+	auto chunks_per_thread = MaxValue<idx_t>((chunk_count + num_threads - 1) / num_threads, 1);
+	idx_t chunk_idx = 0;
+	for(idx_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
+		if (chunk_idx == chunk_count) {
+			break;
+		}
+		auto chunk_idx_from = chunk_idx;
+		auto chunk_idx_to = MinValue<idx_t>(chunk_idx_from + chunks_per_thread, chunk_count);
+		state->chunks_todo.emplace_back(chunk_idx_from, chunk_idx_to);
+		chunk_idx = chunk_idx_to;
+	}
+	return unique_ptr_cast<CreateBFGlobalSourceState, GlobalSourceState>(std::move(state));
 }
 
 unique_ptr<LocalSourceState> PhysicalCreateBF::GetLocalSourceState(ExecutionContext &context,
@@ -228,9 +253,24 @@ SourceResultType PhysicalCreateBF::GetData(ExecutionContext &context, DataChunk 
 	auto &gstate = sink_state->Cast<CreateBFGlobalSinkState>();
 	auto &lstate = input.local_state.Cast<CreateBFLocalSourceState>();
 	auto &state = input.global_state.Cast<CreateBFGlobalSourceState>();
-	if (!gstate.data.Scan(state.scan_state, lstate.scan_state, chunk)) {
+	// if (!gstate.data.Scan(state.scan_state, lstate.scan_state, chunk)) {
+	//	return SourceResultType::FINISHED;
+	// }
+	if(lstate.initial) {
+		lstate.local_partition_id = state.partition_id++;
+		lstate.initial = false;
+		if (lstate.local_partition_id >= state.chunks_todo.size()) {
+			return SourceResultType::FINISHED;
+		}
+		lstate.chunk_from = state.chunks_todo[lstate.local_partition_id].first;
+		lstate.chunk_to = state.chunks_todo[lstate.local_partition_id].second;
+	}
+	if (lstate.local_current_chunk_id == 0) {
+		lstate.local_current_chunk_id = lstate.chunk_from;
+	} else if(lstate.local_current_chunk_id >= lstate.chunk_to) {
 		return SourceResultType::FINISHED;
 	}
+	gstate.data.FetchChunk(lstate.local_current_chunk_id++, chunk);
 	return SourceResultType::HAVE_MORE_OUTPUT;
 }
 
