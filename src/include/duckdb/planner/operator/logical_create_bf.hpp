@@ -13,11 +13,11 @@ public:
 	PhysicalCreateBF *physical = nullptr;
 
 public:
-    LogicalCreateBF(std::unordered_map<duckdb::idx_t, vector<duckdb::BlockedBloomFilter*>> temp_result);
+    LogicalCreateBF(std::unordered_map<duckdb::idx_t, vector<shared_ptr<BlockedBloomFilter>>> temp_result);
 
-    std::unordered_map<duckdb::idx_t, vector<duckdb::BlockedBloomFilter*>> bf_to_create;
+    std::unordered_map<duckdb::idx_t, vector<shared_ptr<BlockedBloomFilter>>> bf_to_create;
 
-	std::unordered_map<duckdb::idx_t, vector<duckdb::BlockedBloomFilter*>> bf_to_create_bind;
+	std::unordered_map<duckdb::idx_t, vector<shared_ptr<BlockedBloomFilter>>> bf_to_create_bind;
 
 public:
 	void Serialize(Serializer &serializer) const override;

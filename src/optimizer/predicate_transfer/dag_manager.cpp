@@ -26,7 +26,7 @@ vector<LogicalOperator*>& DAGManager::getSortedOrder() {
     return nodes_manager.getNodes();
 }
 
-void DAGManager::Add(ColumnBinding create_table, BlockedBloomFilter *use_bf, bool reverse) {
+void DAGManager::Add(ColumnBinding create_table, shared_ptr<BlockedBloomFilter> use_bf, bool reverse) {
     if (!reverse) {
         auto in = use_bf->GetCol().table_index;
         nodes.nodes[in]->AddIn(create_table.table_index, use_bf);

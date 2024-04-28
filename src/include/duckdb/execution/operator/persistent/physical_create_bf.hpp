@@ -9,9 +9,9 @@ public:
 	static constexpr const PhysicalOperatorType TYPE = PhysicalOperatorType::CREATE_BF;
 
 public:
-    PhysicalCreateBF(vector<LogicalType> types, unordered_map<idx_t, vector<BlockedBloomFilter*>> bf, idx_t estimated_cardinality);
+    PhysicalCreateBF(vector<LogicalType> types, unordered_map<idx_t, vector<shared_ptr<BlockedBloomFilter>>> bf, idx_t estimated_cardinality);
 
-    unordered_map<idx_t, vector<BlockedBloomFilter*>> bf_to_create;
+    unordered_map<idx_t, vector<shared_ptr<BlockedBloomFilter>>> bf_to_create;
 
 	shared_ptr<Pipeline> this_pipeline;
 

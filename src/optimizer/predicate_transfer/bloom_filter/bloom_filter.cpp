@@ -92,7 +92,7 @@ arrow::Status BlockedBloomFilter::CreateEmpty(int64_t num_rows_to_insert, arrow:
   int64_t buffer_size = num_blocks_ * sizeof(uint64_t);
   ARROW_ASSIGN_OR_RAISE(buf_, AllocateBuffer(buffer_size, pool));
   
-  //blocks_ = reinterpret_cast<uint64_t*>(buf_->mutable_data());
+  // blocks_ = reinterpret_cast<uint64_t*>(buf_->mutable_data());
   blocks_ = reinterpret_cast<std::atomic<uint64_t>*>(buf_->mutable_data());
   
   memset(blocks_, 0, buffer_size);

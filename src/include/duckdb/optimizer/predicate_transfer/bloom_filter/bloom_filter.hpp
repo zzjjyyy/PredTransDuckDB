@@ -98,7 +98,7 @@ struct BloomFilterMasks {
 //
 class BlockedBloomFilter {
   friend class BloomFilterBuilder_SingleThreaded;
-  // friend class BloomFilterBuilder_Parallel;
+  friend class BloomFilterBuilder_Parallel;
 
 public:
   BlockedBloomFilter(ColumnBinding column_binding)

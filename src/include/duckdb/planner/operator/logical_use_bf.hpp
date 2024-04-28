@@ -10,9 +10,9 @@ public:
 	static constexpr const LogicalOperatorType TYPE = LogicalOperatorType::LOGICAL_USE_BF;
 
 public:
-    LogicalUseBF(vector<duckdb::BlockedBloomFilter*> temp_result);
+    LogicalUseBF(vector<shared_ptr<BlockedBloomFilter>> temp_result);
 
-    vector<duckdb::BlockedBloomFilter*> bf_to_use;
+    vector<shared_ptr<BlockedBloomFilter>> bf_to_use;
 
 	vector<LogicalCreateBF*> related_create_bf;
 
