@@ -12,7 +12,7 @@
 #include <thread>
 
 namespace duckdb {
-PhysicalCreateBF::PhysicalCreateBF(vector<LogicalType> types, unordered_map<idx_t, vector<BlockedBloomFilter*>> bf, idx_t estimated_cardinality)
+PhysicalCreateBF::PhysicalCreateBF(vector<LogicalType> types, unordered_map<idx_t, vector<shared_ptr<BlockedBloomFilter>>> bf, idx_t estimated_cardinality)
     : PhysicalOperator(PhysicalOperatorType::CREATE_BF, std::move(types), estimated_cardinality), bf_to_create(bf) {
 };
 
@@ -164,11 +164,11 @@ SinkFinalizeType PhysicalCreateBF::Finalize(Pipeline &pipeline, Event &event, Cl
 		for(auto &filter : filter_vec.second) {
 			if (num_threads == 1) {
 				auto builder = make_shared<BloomFilterBuilder_SingleThreaded>();
-				builder->Begin(1, arrow::internal::CpuInfo::AVX2, arrow::MemoryPool::CreateDefault().get(), num_rows, 0, filter);
+				builder->Begin(1, arrow::internal::CpuInfo::AVX2, arrow::default_memory_pool(), num_rows, 0, filter.get());
 				state.builders[filter_vec.first].emplace_back(builder);
 			} else {
 				auto builder = make_shared<BloomFilterBuilder_Parallel>();
-				builder->Begin(num_threads, arrow::internal::CpuInfo::AVX2, arrow::MemoryPool::CreateDefault().get(), num_rows, 0, filter);
+				builder->Begin(num_threads, arrow::internal::CpuInfo::AVX2, arrow::default_memory_pool(), num_rows, 0, filter.get());
 				state.builders[filter_vec.first].emplace_back(builder);
 			}
 		}
