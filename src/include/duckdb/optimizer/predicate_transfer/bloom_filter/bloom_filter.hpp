@@ -191,10 +191,10 @@ public:
 private:
   inline void Insert(uint64_t hash) {
     uint64_t m = mask(hash);
-    // uint64_t &b = blocks_[block_id(hash)];
-    // b |= m;
-    std::atomic<uint64_t> &b = blocks_[block_id(hash)];
-    b.fetch_or(m);
+    uint64_t &b = blocks_[block_id(hash)];
+    b |= m;
+    // std::atomic<uint64_t> &b = blocks_[block_id(hash)];
+    // b.fetch_or(m);
   }
 
   inline uint64_t mask(uint64_t hash) const {
@@ -245,8 +245,8 @@ private:
 
   void SetBuf(const std::shared_ptr<arrow::Buffer> &buf) {
     buf_ = buf;
-    // blocks_ = reinterpret_cast<uint64_t*>(const_cast<uint8_t*>(buf_->data()));
-    blocks_ = reinterpret_cast<std::atomic<uint64_t>*>(const_cast<uint8_t*>(buf_->data()));
+    blocks_ = reinterpret_cast<uint64_t*>(const_cast<uint8_t*>(buf_->data()));
+    // blocks_ = reinterpret_cast<std::atomic<uint64_t>*>(const_cast<uint8_t*>(buf_->data()));
   }
 
   static constexpr int64_t kPrefetchLimitBytes = 256 * 1024;
@@ -272,8 +272,8 @@ private:
   std::shared_ptr<arrow::Buffer> buf_;
   
   // Pointer to mutable data owned by Buffer
-  // uint64_t* blocks_;
-  std::atomic<uint64_t>* blocks_;
+  uint64_t* blocks_;
+  // std::atomic<uint64_t>* blocks_;
 
   bool Used_;
 };
@@ -303,6 +303,8 @@ public:
   virtual arrow::Status PushNextBatch(size_t thread_index, int64_t num_rows,
                                const uint64_t* hashes) = 0;
   virtual void CleanUp() {}
+
+  virtual void Merge() {}
 };
 
 class BloomFilterBuilder_SingleThreaded : public BloomFilterBuilder {
@@ -322,19 +324,22 @@ private:
 };
 
 class ARROW_ACERO_EXPORT BloomFilterBuilder_Parallel : public BloomFilterBuilder {
- public:
-  arrow::Status Begin(size_t num_threads, int64_t hardware_flags, arrow::MemoryPool* pool,
-                      int64_t num_rows, int64_t num_batches,
-                      BlockedBloomFilter* build_target) override;
+  public:
+    arrow::Status Begin(size_t num_threads, int64_t hardware_flags, arrow::MemoryPool* pool,
+                        int64_t num_rows, int64_t num_batches,
+                        BlockedBloomFilter* build_target) override;
 
-  arrow::Status PushNextBatch(size_t thread_id, int64_t num_rows,
-                              const uint64_t* hashes) override;
+    arrow::Status PushNextBatch(size_t thread_id, int64_t num_rows,
+                                const uint64_t* hashes) override;
 
-  void CleanUp() override;
+    void CleanUp() override;
 
- private:
-  void PushNextBatchImp(size_t thread_id, int64_t num_rows, const uint64_t* hashes);
+    void Merge() override;
 
+  private:
+    void PushNextBatchImp(size_t thread_id, int64_t num_rows, const uint64_t* hashes);
+
+  int64_t total_row_nums_;
   int64_t hardware_flags_;
   BlockedBloomFilter* build_target_;
   int log_num_prtns_;
@@ -343,6 +348,7 @@ class ARROW_ACERO_EXPORT BloomFilterBuilder_Parallel : public BloomFilterBuilder
     std::vector<uint64_t> partitioned_hashes_64;
     std::vector<uint16_t> partition_ranges;
     std::vector<int> unprocessed_partition_ids;
+    shared_ptr<BlockedBloomFilter> local_bf;
   };
   std::vector<ThreadLocalState> thread_local_states_;
   PartitionLocks prtn_locks_;

@@ -5,7 +5,7 @@
 namespace duckdb {
 
 void BloomFilterUseKernel::filter(const Vector &result,
-            BlockedBloomFilter* bloom_filter,
+            shared_ptr<BlockedBloomFilter> bloom_filter,
             SelectionVector &sel,
             idx_t &approved_tuple_count,
             idx_t row_num) {

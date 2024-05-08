@@ -92,8 +92,8 @@ arrow::Status BlockedBloomFilter::CreateEmpty(int64_t num_rows_to_insert, arrow:
   int64_t buffer_size = num_blocks_ * sizeof(uint64_t);
   ARROW_ASSIGN_OR_RAISE(buf_, AllocateBuffer(buffer_size, pool));
   
-  // blocks_ = reinterpret_cast<uint64_t*>(buf_->mutable_data());
-  blocks_ = reinterpret_cast<std::atomic<uint64_t>*>(buf_->mutable_data());
+  blocks_ = reinterpret_cast<uint64_t*>(buf_->mutable_data());
+  // blocks_ = reinterpret_cast<std::atomic<uint64_t>*>(buf_->mutable_data());
   
   memset(blocks_, 0, buffer_size);
   return arrow::Status::OK();
@@ -223,14 +223,14 @@ void BlockedBloomFilter::SingleFold(int num_folds) {
   int64_t num_slices = 1LL << num_folds;
   int64_t num_slice_blocks = (num_blocks_ >> num_folds);
   
-  // uint64_t* target_slice = blocks_;
-  std::atomic<uint64_t>* target_slice = blocks_;
+  uint64_t* target_slice = blocks_;
+  // std::atomic<uint64_t>* target_slice = blocks_;
   
   // OR bits of all the slices and store result in the first slice
   //
   for (int64_t slice = 1; slice < num_slices; ++slice) {
-    // const uint64_t* source_slice = blocks_ + slice * num_slice_blocks;
-    std::atomic<uint64_t>* source_slice = blocks_ + slice * num_slice_blocks;
+    const uint64_t* source_slice = blocks_ + slice * num_slice_blocks;
+    // std::atomic<uint64_t>* source_slice = blocks_ + slice * num_slice_blocks;
     for (int i = 0; i < num_slice_blocks; ++i) {
       target_slice[i] |= source_slice[i];
     }
@@ -290,6 +290,7 @@ arrow::Status BloomFilterBuilder_Parallel::Begin(size_t num_threads, int64_t har
                                                  BlockedBloomFilter* build_target) {
   hardware_flags_ = hardware_flags;
   build_target_ = build_target;
+  total_row_nums_ = num_rows;
 
   constexpr int kMaxLogNumPrtns = 8;
   log_num_prtns_ = std::min(kMaxLogNumPrtns, arrow::bit_util::Log2(num_threads));
@@ -329,6 +330,14 @@ void BloomFilterBuilder_Parallel::PushNextBatchImp(size_t thread_id, int64_t num
   uint16_t* partition_ranges = local_state.partition_ranges.data();
   uint64_t* partitioned_hashes = local_state.partitioned_hashes_64.data();
   int* unprocessed_partition_ids = local_state.unprocessed_partition_ids.data();
+  
+  /*
+  if(local_state.local_bf == nullptr) {
+    ColumnBinding col_bind(0, 0);
+    local_state.local_bf = make_shared<BlockedBloomFilter>(col_bind);
+    local_state.local_bf->CreateEmpty(total_row_nums_, arrow::default_memory_pool());
+  }
+  */
 
   PartitionSort::Eval(
       num_rows, num_prtns, partition_ranges,
@@ -349,8 +358,11 @@ void BloomFilterBuilder_Parallel::PushNextBatchImp(size_t thread_id, int64_t num
   while (num_unprocessed_partitions > 0) {
     int locked_prtn_id;
     int locked_prtn_id_pos;
-    prtn_locks_.AcquirePartitionLock(thread_id, num_unprocessed_partitions, unprocessed_partition_ids, false, -1, &locked_prtn_id, &locked_prtn_id_pos);
+    locked_prtn_id_pos = 0;
+    locked_prtn_id = unprocessed_partition_ids[locked_prtn_id_pos];
+    // prtn_locks_.AcquirePartitionLock(thread_id, num_unprocessed_partitions, unprocessed_partition_ids, false, -1, &locked_prtn_id, &locked_prtn_id_pos);
     build_target_->Insert(
+    // local_state.local_bf->Insert(
         hardware_flags_,
         partition_ranges[locked_prtn_id + 1] - partition_ranges[locked_prtn_id],
         partitioned_hashes + partition_ranges[locked_prtn_id]);
@@ -366,5 +378,9 @@ void BloomFilterBuilder_Parallel::PushNextBatchImp(size_t thread_id, int64_t num
 void BloomFilterBuilder_Parallel::CleanUp() {
   thread_local_states_.clear();
   prtn_locks_.CleanUp();
+}
+
+void BloomFilterBuilder_Parallel::Merge() {
+
 }
 }

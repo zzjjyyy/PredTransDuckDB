@@ -87,7 +87,7 @@ class HashJoinGlobalSinkState : public GlobalSinkState {
 public:
 	HashJoinGlobalSinkState(const PhysicalHashJoin &op, ClientContext &context_p)
 	    : context(context_p), temporary_memory_state(TemporaryMemoryManager::Get(context).Register(context)),
-	      finalized(false), scanned_data(false) {
+	      finalized(false), scanned_data(false), op(op) {
 		hash_table = op.InitializeHashTable(context);
 
 		// for perfect hash join
@@ -128,6 +128,8 @@ public:
 
 	//! Whether or not we have started scanning data using GetData
 	atomic<bool> scanned_data;
+
+	const PhysicalHashJoin &op;
 };
 
 class HashJoinLocalSinkState : public LocalSinkState {
@@ -271,7 +273,11 @@ public:
 	}
 
 	TaskExecutionResult ExecuteTask(TaskExecutionMode mode) override {
+		ThreadContext tcontext(this->executor.context);
+		tcontext.profiler.StartOperator(&sink.op);
 		sink.hash_table->Finalize(chunk_idx_from, chunk_idx_to, parallel);
+		tcontext.profiler.EndOperator(nullptr);
+		this->executor.Flush(tcontext);
 		event->FinishTask();
 		return TaskExecutionResult::TASK_FINISHED;
 	}

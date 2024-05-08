@@ -5,7 +5,7 @@
 #include "duckdb/parallel/pipeline.hpp"
 
 namespace duckdb {
-PhysicalUseBF::PhysicalUseBF(vector<LogicalType> types, vector<BlockedBloomFilter*> bf, idx_t estimated_cardinality)
+PhysicalUseBF::PhysicalUseBF(vector<LogicalType> types, vector<shared_ptr<BlockedBloomFilter>> bf, idx_t estimated_cardinality)
     : CachingPhysicalOperator(PhysicalOperatorType::USE_BF, std::move(types), estimated_cardinality), bf_to_use(bf) {}
     
 unique_ptr<OperatorState> PhysicalUseBF::GetOperatorState(ExecutionContext &context) const {
@@ -18,12 +18,9 @@ OperatorResultType PhysicalUseBF::ExecuteInternal(ExecutionContext &context, Dat
 	idx_t row_num = input.size();
     idx_t result_count = input.size();
 	SelectionVector sel(STANDARD_VECTOR_SIZE);
-	D_ASSERT(bf_to_use.size() == 1);
-	for (auto itr = bf_to_use.begin(); itr != bf_to_use.end(); itr++) {
-		auto bf = *itr;
-        Vector &result = input.data[bf->Ref];
-		BloomFilterUseKernel::filter(result, bf, sel, result_count, row_num);
-    }
+	auto bf = bf_to_use[0];
+    Vector &result = input.data[bf->Ref];
+	BloomFilterUseKernel::filter(result, bf, sel, result_count, row_num);
 	if (result_count == row_num) {
 		// nothing was filtered: skip adding any selection vectors
 		chunk.Reference(input);
