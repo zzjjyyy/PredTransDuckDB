@@ -42,7 +42,6 @@ void NodesManager::SortNodes() {
 		sort_nodes.emplace_back(node.second);
 	}
 	sort(sort_nodes.begin(), sort_nodes.end(), NodesManager::nodesCmp);
-    int idx = 0;
 }
 
 static bool OperatorNeedsRelation(LogicalOperatorType op_type) {
@@ -181,7 +180,9 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_PROJECTION: {
-		ExtractNodes(*op->children[0], filter_operators);
+		RelationStats child_stats;
+		PredicateTransferOptimizer optimizer(context);
+		op->children[0] = optimizer.Optimize(std::move(op->children[0]), &child_stats);
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_EMPTY_RESULT: {
