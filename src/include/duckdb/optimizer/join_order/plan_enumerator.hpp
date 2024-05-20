@@ -36,6 +36,7 @@ public:
 
 	//! Perform the join order solving
 	unique_ptr<JoinNode> SolveJoinOrder();
+	unique_ptr<JoinNode> SolveJoinOrderRandom();
 	void InitLeafPlans();
 
 	static unique_ptr<LogicalOperator> BuildSideProbeSideSwaps(unique_ptr<LogicalOperator> plan);

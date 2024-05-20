@@ -128,14 +128,20 @@ bool TaskScheduler::GetTaskFromProducer(ProducerToken &token, shared_ptr<Task> &
 	return queue->DequeueFromProducer(token, task);
 }
 
+double idle_time = 0;
+
 void TaskScheduler::ExecuteForever(atomic<bool> *marker) {
 #ifndef DUCKDB_NO_THREADS
 	shared_ptr<Task> task;
+	// auto start = std::chrono::high_resolution_clock::now();
 	// loop until the marker is set to false
 	while (*marker) {
 		// wait for a signal with a timeout
 		queue->semaphore.wait();
 		if (queue->q.try_dequeue(task)) {
+			// auto end = std::chrono::high_resolution_clock::now();
+			// std::chrono::duration<double> duration = end - start;
+			// idle_time += duration.count();
 			auto execute_result = task->Execute(TaskExecutionMode::PROCESS_ALL);
 
 			switch (execute_result) {
@@ -153,6 +159,7 @@ void TaskScheduler::ExecuteForever(atomic<bool> *marker) {
 
 			// Flushes the outstanding allocator's outstanding allocations
 			Allocator::ThreadFlush(allocator_flush_threshold);
+			// start = std::chrono::high_resolution_clock::now();
 		}
 	}
 #else

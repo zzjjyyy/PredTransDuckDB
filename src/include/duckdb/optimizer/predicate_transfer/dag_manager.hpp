@@ -27,7 +27,7 @@ public:
     //! Extract the join relations, optimizing non-reoderable relations when encountered
 	bool Build(LogicalOperator &op);
 
-    vector<LogicalOperator*>& getSortedOrder();
+    vector<LogicalOperator*>& getExecOrder();
 
     void Add(ColumnBinding create_table, shared_ptr<BlockedBloomFilter> use_bf, bool reverse);
 
@@ -38,11 +38,19 @@ public:
     DAG nodes;
     
 private:
+    vector<LogicalOperator*> ExecOrder;
+    
     vector<unique_ptr<DAGEdgeInfo>> filters_and_bindings_;
 
     void ExtractEdges(LogicalOperator &op,
                       vector<reference<LogicalOperator>> &filter_operators);
     
     void CreateDAG();
+
+    vector<DAGEdgeInfo*> GetNeighbors(idx_t node_id, vector<LogicalOperator*> &sorted_nodes);
+
+    void AddEdge(DAGNode &node, vector<DAGEdgeInfo*> &neighbors);
+
+    static int EdgesCmp(DAGEdgeInfo* a, DAGEdgeInfo* b);
 };
 }

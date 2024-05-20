@@ -8,7 +8,7 @@ class DAGEdge;
 
 class DAGNode {
 public:
-    DAGNode(idx_t id) : id(id) {
+    DAGNode(idx_t id, bool root) : id(id), root(root) {
     }
 
     idx_t Id() {
@@ -26,6 +26,8 @@ public:
     vector<unique_ptr<DAGEdge>> in_;
 
     vector<unique_ptr<DAGEdge>> out_;
+
+    bool root;
 
 private:
     idx_t id;

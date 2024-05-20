@@ -61,10 +61,10 @@ unique_ptr<LogicalOperator> PredicateTransferOptimizer::Optimize(unique_ptr<Logi
 	if(!success) {
 		return plan;
 	}
-    auto &sorted_nodes = dag_manager.getSortedOrder();
+    auto &ordered_nodes = dag_manager.getExecOrder();
 	// Forward
-	for(auto i = 0; i < sorted_nodes.size(); i++) {
-        auto current_node = sorted_nodes[i];
+	for(int i = ordered_nodes.size() - 1; i >= 0; i--) {
+        auto current_node = ordered_nodes[i];
 		// We do predicate transfer in the function CreateBloomFilter
 		// query_graph_manager holds the input bloom filter
 		// return current BF and neighbor BF
@@ -78,8 +78,8 @@ unique_ptr<LogicalOperator> PredicateTransferOptimizer::Optimize(unique_ptr<Logi
 	}	
 	
 	//Backward
-	for(int i = sorted_nodes.size() - 1; i >= 0; i--) {
-        auto &current_node = sorted_nodes[i];
+	for(int i = 0; i < ordered_nodes.size(); i++) {
+        auto &current_node = ordered_nodes[i];
 		// We do predicate transfer in the function CreateBloomFilter
 		// query_graph_manager holds the input bloom filter
 		// return BF and its corresponding table id
@@ -126,6 +126,9 @@ vector<pair<ColumnBinding, shared_ptr<BlockedBloomFilter>>> PredicateTransferOpt
 		if(temp_result_to_create.size() == 0) {
 			return result;
 		} else {
+			if(!PossibleFilterAny(node, reverse)) {
+				return result;
+			}
 			auto create_bf = BuildSingleCreateOperator(node, temp_result_to_create);
 			for (auto &filter_vec : create_bf->bf_to_create) {
 				for(auto bf : filter_vec.second) {
@@ -176,6 +179,9 @@ idx_t PredicateTransferOptimizer::GetNodeId(LogicalOperator &node) {
 	} else if (node.type == LogicalOperatorType::LOGICAL_DELIM_GET) {
 		auto &delim_get = node.Cast<LogicalDelimGet>();
 		res = delim_get.GetTableIndex()[0];
+	} else if (node.type == LogicalOperatorType::LOGICAL_PROJECTION) {
+		auto &project = node.Cast<LogicalProjection>();
+		res = project.GetTableIndex()[0];
 	}
 	return res;
 }
@@ -265,6 +271,7 @@ PredicateTransferOptimizer::BuildUseOperator(LogicalOperator &node,
 	unique_ptr<LogicalUseBF> pre_use_bf;
 	unique_ptr<LogicalUseBF> use_bf;
 	// This is important for performance, not use for (int i = 0; i < temp_result_to_use.size(); i++)
+	// for (int i = 0; i < temp_result_to_use.size(); i++) {
 	for (int i = temp_result_to_use.size() - 1; i >= 0; i--) {
 		vector<shared_ptr<BlockedBloomFilter>> v;
 		v.emplace_back(temp_result_to_use[i]);
@@ -341,19 +348,57 @@ unique_ptr<LogicalOperator> PredicateTransferOptimizer::InsertCreateBFOperator_d
 		}
 		ptr->AddChild(std::move(plan));
 		plan = std::move(itr->second);
-		auto itr_next = replace_map_backward.find(plan_ptr);
-		if (itr_next != replace_map_backward.end()) {
-			auto ptr_next = itr_next->second.get();
-			while (ptr_next->children.size() != 0) {
-				ptr_next = ptr_next->children[0].get();
+	}
+	auto itr_next = replace_map_backward.find(plan_ptr);
+	if (itr_next != replace_map_backward.end()) {
+		auto ptr_next = itr_next->second.get();
+		while (ptr_next->children.size() != 0) {
+			ptr_next = ptr_next->children[0].get();
+		}
+		ptr_next->AddChild(std::move(plan));
+		plan = std::move(itr_next->second);
+	}
+	return plan;
+}
+
+bool PredicateTransferOptimizer::PossibleFilterAny(LogicalOperator &node, bool reverse) {
+	if(!reverse) {
+		if (node.type == LogicalOperatorType::LOGICAL_FILTER) {
+			return true;
+		} else if (node.type == LogicalOperatorType::LOGICAL_GET) {
+			auto& get = node.Cast<LogicalGet>();
+			if(get.table_filters.filters.size() == 0) {
+				return false;
+			} else {
+				return true;
 			}
-			ptr_next->AddChild(std::move(plan));
-			return std::move(itr_next->second);
-		} else {
-			return plan;
+		} else if (node.type == LogicalOperatorType::LOGICAL_DELIM_GET) {
+			return true;
+		} else if (node.type == LogicalOperatorType::LOGICAL_PROJECTION) {
+			return true;
 		}
 	} else {
-		return plan;
+		if(replace_map_forward.find(&node) != replace_map_forward.end()) {
+			return true;
+		} else {
+			if (node.type == LogicalOperatorType::LOGICAL_GET) {
+				auto& get = node.Cast<LogicalGet>();
+				if (get.table_filters.filters.size() != 0) {
+					return true;
+				}
+			} else if (node.type == LogicalOperatorType::LOGICAL_FILTER) {
+				auto& get = LogicalGetinFilter(node);
+				if (get.table_filters.filters.size() != 0) {
+					return true;
+				}
+			} else if (node.type == LogicalOperatorType::LOGICAL_DELIM_GET) {
+				return true;
+			} else if (node.type == LogicalOperatorType::LOGICAL_PROJECTION) {
+				return true;
+			}
+			return false;
+		}
 	}
+	return true;
 }
 }

@@ -1,6 +1,7 @@
 #include "duckdb/main/pending_query_result.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/prepared_statement_data.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -54,6 +55,7 @@ PendingExecutionResult PendingQueryResult::ExecuteTaskInternal(ClientContextLock
 }
 
 unique_ptr<QueryResult> PendingQueryResult::ExecuteInternal(ClientContextLock &lock) {
+	// idle_time = 0;
 	CheckExecutableInternal(lock);
 	// Busy wait while execution is not finished
 	while (!IsFinished(ExecuteTaskInternal(lock))) {
@@ -63,6 +65,7 @@ unique_ptr<QueryResult> PendingQueryResult::ExecuteInternal(ClientContextLock &l
 	}
 	auto result = context->FetchResultInternal(lock, *this);
 	Close();
+	// std::cout << idle_time << std::endl;
 	return result;
 }
 

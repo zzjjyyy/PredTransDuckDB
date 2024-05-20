@@ -26,7 +26,11 @@ public:
 		}
 	}
 
-	vector<LogicalOperator*>& getNodes() {
+	unordered_map<idx_t, LogicalOperator*>& getNodes() {
+		return nodes;
+	}
+
+	vector<LogicalOperator*>& getSortedNodes() {
 		return sort_nodes;
 	}
 	

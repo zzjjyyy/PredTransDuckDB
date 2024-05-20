@@ -33,6 +33,8 @@ void NodesManager::AddNode(LogicalOperator *op, const RelationStats &stats) {
 		nodes[children.GetTableIndex()[0]] = op;
 	} else if (op->type == LogicalOperatorType::LOGICAL_DELIM_GET) {
 		nodes[op->GetTableIndex()[0]] = op;
+	} else if (op->type == LogicalOperatorType::LOGICAL_PROJECTION) {
+		nodes[op->GetTableIndex()[0]] = op;
 	}
     return;
 }
@@ -113,7 +115,8 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 		|| join.join_type == JoinType::LEFT
 		|| join.join_type == JoinType::RIGHT
 		|| join.join_type == JoinType::SEMI
-		|| join.join_type == JoinType::RIGHT_SEMI) {
+		|| join.join_type == JoinType::RIGHT_SEMI
+		|| join.join_type == JoinType::MARK) {
 			for(auto &jc : join.conditions) {
 				if(jc.comparison == ExpressionType::COMPARE_EQUAL) {
 					filter_operators.push_back(*op);
@@ -183,6 +186,9 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 		RelationStats child_stats;
 		PredicateTransferOptimizer optimizer(context);
 		op->children[0] = optimizer.Optimize(std::move(op->children[0]), &child_stats);
+		auto &project = op->Cast<LogicalProjection>();
+		auto stats = RelationStatisticsHelper::ExtractProjectionStats(project, child_stats);
+		AddNode(op, stats);
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_EMPTY_RESULT: {

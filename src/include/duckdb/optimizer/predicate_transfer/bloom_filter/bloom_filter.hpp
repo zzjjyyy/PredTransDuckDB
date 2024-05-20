@@ -173,7 +173,8 @@ public:
 
   // Num bits used per hash value
   static constexpr int64_t kMinNumBitsPerKey = 8;
-
+  // static constexpr int64_t kMinNumBitsPerKey = 16;
+  
   // Maximum number of actually used blocks for 32-bit hashes, given num bits used to get mask.
   // When we want to use more blocks, 64-bit hashes are required.
   // It can still work if we try to use more blocks than this bound for 32-bit hashes, but will result in a much

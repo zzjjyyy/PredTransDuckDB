@@ -51,5 +51,7 @@ private:
 					   unordered_map<idx_t, vector<shared_ptr<BlockedBloomFilter>>> &temp_result_to_create,
                        vector<idx_t> &depend_nodes,
 					   bool reverse);
+
+    bool PossibleFilterAny(LogicalOperator &node, bool reverse);
 };
 }

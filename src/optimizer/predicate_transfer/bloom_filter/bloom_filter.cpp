@@ -79,6 +79,7 @@ arrow::Status BlockedBloomFilter::CreateEmpty(int64_t num_rows_to_insert, arrow:
   // Compute the size
   //
   constexpr int64_t min_num_bits_per_key = 8;
+  // constexpr int64_t min_num_bits_per_key = 16;
   constexpr int64_t min_num_bits = 512;
   int64_t desired_num_bits =
       std::max(min_num_bits, num_rows_to_insert * min_num_bits_per_key);

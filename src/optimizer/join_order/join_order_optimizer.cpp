@@ -48,7 +48,8 @@ unique_ptr<LogicalOperator> JoinOrderOptimizer::Optimize(unique_ptr<LogicalOpera
 		plan_enumerator.InitLeafPlans();
 
 		// Ask the plan enumerator to enumerate a number of join orders
-		auto final_plan = plan_enumerator.SolveJoinOrder();
+		// auto final_plan = plan_enumerator.SolveJoinOrder();
+		auto final_plan = plan_enumerator.SolveJoinOrderRandom();
 		// TODO: add in the check that if no plan exists, you have to add a cross product.
 
 		// now reconstruct a logical plan from the query graph plan
