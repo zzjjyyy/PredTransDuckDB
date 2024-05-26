@@ -11,18 +11,27 @@
 #include "duckdb/function/table/table_scan.hpp"
 #include "duckdb/catalog/catalog_entry/duck_table_entry.hpp"
 #include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
-#include "duckdb/planner/operator/logical_create_table.hpp"
+#include "duckdb/planner/operator/logical_create_table_for_BF.hpp"
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/planner/operator/logical_projection.hpp"
+#include "duckdb/main/database_manager.hpp"
+#include "duckdb/main/attached_database.hpp"
+#include "duckdb/main/client_data.hpp"
+#include "duckdb/catalog/catalog_search_path.hpp"
 #include <set>
 
 namespace duckdb {
+std::unordered_map<std::string, int> PredicateTransferOptimizer::table_exists;
+
 LogicalGet& PredicateTransferOptimizer::LogicalGetinFilter(LogicalOperator &op) {
-	if (op.children[0]->type == LogicalOperatorType::LOGICAL_GET) {
-		return op.children[0]->Cast<LogicalGet>();
-	} else if (op.children[0]->type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN) {
-		// For In-Clause optimization
-		return op.children[0]->children[0]->Cast<LogicalGet>();
+	if(op.type == LogicalOperatorType::LOGICAL_FILTER) {
+		LogicalOperator* child = op.children[0].get();
+		while (child->type != LogicalOperatorType::LOGICAL_GET) {
+			child = child->children[0].get();
+		}
+		return child->Cast<LogicalGet>();
+	} else if (op.type == LogicalOperatorType::LOGICAL_GET) {
+		return op.Cast<LogicalGet>();
 	}
 }
 
@@ -341,7 +350,9 @@ unique_ptr<LogicalOperator> PredicateTransferOptimizer::InsertCreateBFOperator_d
 	}
 	void *plan_ptr = plan.get();
 	auto itr = replace_map_forward.find(plan_ptr);
+	bool insert_create_table = false;
 	if (itr != replace_map_forward.end()) {
+		insert_create_table = true;
 		auto ptr = itr->second.get();
 		while (ptr->children.size() != 0) {
 			ptr = ptr->children[0].get();
@@ -351,6 +362,7 @@ unique_ptr<LogicalOperator> PredicateTransferOptimizer::InsertCreateBFOperator_d
 	}
 	auto itr_next = replace_map_backward.find(plan_ptr);
 	if (itr_next != replace_map_backward.end()) {
+		insert_create_table = true;
 		auto ptr_next = itr_next->second.get();
 		while (ptr_next->children.size() != 0) {
 			ptr_next = ptr_next->children[0].get();
@@ -358,6 +370,11 @@ unique_ptr<LogicalOperator> PredicateTransferOptimizer::InsertCreateBFOperator_d
 		ptr_next->AddChild(std::move(plan));
 		plan = std::move(itr_next->second);
 	}
+
+	if (insert_create_table) {
+		plan = InsertCreateTable(std::move(plan), (LogicalOperator*)plan_ptr);
+	}
+
 	return plan;
 }
 
@@ -400,5 +417,81 @@ bool PredicateTransferOptimizer::PossibleFilterAny(LogicalOperator &node, bool r
 		}
 	}
 	return true;
+}
+
+unique_ptr<LogicalOperator> PredicateTransferOptimizer::InsertCreateTable(unique_ptr<LogicalOperator> plan, LogicalOperator* plan_ptr) {
+	if(plan_ptr->type != LogicalOperatorType::LOGICAL_GET && plan_ptr->type != LogicalOperatorType::LOGICAL_FILTER) {
+		return plan;
+	}
+	LogicalGet& get = LogicalGetinFilter(*plan_ptr);
+	auto info = make_uniq<CreateTableInfo>();
+	info->catalog = INVALID_CATALOG;
+	info->schema = DEFAULT_SCHEMA;
+	auto name = get.function.to_string(get.bind_data.get());
+	if(table_exists.find(name) == table_exists.end()) {
+		info->table = name + "1";
+		table_exists[name] = 2;
+	} else {
+		info->table = name + std::to_string(table_exists[name]);
+		table_exists[name]++;
+	}
+	
+	if (get.projection_ids.empty()) {
+		for (auto &index : get.column_ids) {
+			info->columns.AddColumn(ColumnDefinition(get.names[index], get.returned_types[index]));
+		}
+	} else {
+		for (auto &proj_index : get.projection_ids) {
+			auto &index = get.column_ids[proj_index];
+			info->columns.AddColumn(ColumnDefinition(get.names[index], get.returned_types[index]));
+		}
+	}
+	if (info->catalog.empty() && !info->schema.empty()) {
+		auto &db_manager = DatabaseManager::Get(context);
+		auto database = db_manager.GetDatabase(context, info->schema);
+		if (database) {
+			auto schema_obj = Catalog::GetSchema(context, INVALID_CATALOG, info->schema, OnEntryNotFound::RETURN_NULL);
+			if (schema_obj) {
+				auto &attached = schema_obj->catalog.GetAttached();
+				throw BinderException("Ambiguous reference to catalog or schema \"%s\" - use a fully qualified path like \"%s.%s\"", info->schema, attached.GetName(), info->schema);
+			}
+			info->catalog = info->schema;
+			info->schema = string();
+		}
+	}
+	if (IsInvalidCatalog(info->catalog) && info->temporary) {
+		info->catalog = TEMP_CATALOG;
+	}
+	auto &search_path = ClientData::Get(context).catalog_search_path;
+	if (IsInvalidCatalog(info->catalog) && IsInvalidSchema(info->schema)) {
+		auto &default_entry = search_path->GetDefault();
+		info->catalog = default_entry.catalog;
+		info->schema = default_entry.schema;
+	} else if (IsInvalidSchema(info->schema)) {
+		info->schema = search_path->GetDefaultSchema(info->catalog);
+	} else if (IsInvalidCatalog(info->catalog)) {
+		info->catalog = search_path->GetDefaultCatalog(info->schema);
+	}
+	if (IsInvalidCatalog(info->catalog)) {
+		info->catalog = DatabaseManager::GetDefaultDatabase(context);
+	}
+	if (!info->temporary) {
+		// non-temporary create: not read only
+		if (info->catalog == TEMP_CATALOG) {
+			throw ParserException("Only TEMPORARY table names can use the \"%s\" catalog", TEMP_CATALOG);
+		}
+	} else {
+		if (info->catalog != TEMP_CATALOG) {
+			throw ParserException("TEMPORARY table names can *only* use the \"%s\" catalog", TEMP_CATALOG);
+		}
+	}
+	auto &schema_obj = Catalog::GetSchema(context, info->catalog, info->schema);
+	D_ASSERT(schema_obj.type == CatalogType::SCHEMA_ENTRY);
+	info->schema = schema_obj.name;
+	auto bound_info = make_uniq<BoundCreateTableInfo>(schema_obj, std::move(info));
+	auto &schema = bound_info->schema;
+	auto create_table = make_uniq<LogicalCreateTableforBF>(schema, std::move(bound_info));
+	create_table->AddChild(std::move(plan));
+	return unique_ptr_cast<LogicalCreateTableforBF, LogicalOperator>(std::move(create_table));
 }
 }

@@ -114,25 +114,12 @@ unique_ptr<LogicalOperator> Optimizer::Optimize(unique_ptr<LogicalOperator> plan
 		Deliminator deliminator;
 		plan = deliminator.Optimize(std::move(plan));
 	});
-	// seed for tpch: 0, 1, 2, 4, 5, 6, 7, 9, 10
-	// srand(10);
 
 	// then we perform the join ordering optimization
 	// this also rewrites cross products + filters into joins and performs filter pushdowns
 	RunOptimizer(OptimizerType::JOIN_ORDER, [&]() {
 		JoinOrderOptimizer optimizer(context);
 		plan = optimizer.Optimize(std::move(plan));
-	});
-
-	// then we perform the predicate transfer optimization
-	RunOptimizer(OptimizerType::PREDICATE_TRANSFER, [&]() {
-		PredicateTransferOptimizer optimizer(context);
-		plan = optimizer.Optimize(std::move(plan));
-	});
-
-	RunOptimizer(OptimizerType::IN_CLAUSE, [&]() {
-		InClauseRewriter ic_rewriter(context, *this);
-		plan = ic_rewriter.Rewrite(std::move(plan));
 	});
 
 	// rewrites UNNESTs in DelimJoins by moving them to the projection
@@ -147,6 +134,17 @@ unique_ptr<LogicalOperator> Optimizer::Optimize(unique_ptr<LogicalOperator> plan
 		unused.VisitOperator(*plan);
 	});
 
+	// then we perform the predicate transfer optimization
+	RunOptimizer(OptimizerType::PREDICATE_TRANSFER, [&]() {
+		PredicateTransferOptimizer optimizer(context);
+		plan = optimizer.Optimize(std::move(plan));
+	});
+
+	RunOptimizer(OptimizerType::IN_CLAUSE, [&]() {
+		InClauseRewriter ic_rewriter(context, *this);
+		plan = ic_rewriter.Rewrite(std::move(plan));
+	});
+
 	// Remove duplicate groups from aggregates
 	RunOptimizer(OptimizerType::DUPLICATE_GROUPS, [&]() {
 		RemoveDuplicateGroups remove;
@@ -159,18 +157,18 @@ unique_ptr<LogicalOperator> Optimizer::Optimize(unique_ptr<LogicalOperator> plan
 		cse_optimizer.VisitOperator(*plan);
 	});
 
-	// creates projection maps so unused columns are projected out early
-	RunOptimizer(OptimizerType::COLUMN_LIFETIME, [&]() {
-		ColumnLifetimeAnalyzer column_lifetime(true);
-		column_lifetime.VisitOperator(*plan);
-	});
-
 	// perform statistics propagation
 	column_binding_map_t<unique_ptr<BaseStatistics>> statistics_map;
 	RunOptimizer(OptimizerType::STATISTICS_PROPAGATION, [&]() {
 		StatisticsPropagator propagator(*this);
 		propagator.PropagateStatistics(plan);
 		statistics_map = propagator.GetStatisticsMap();
+	});
+
+	// creates projection maps so unused columns are projected out early
+	RunOptimizer(OptimizerType::COLUMN_LIFETIME, [&]() {
+		ColumnLifetimeAnalyzer column_lifetime(true);
+		column_lifetime.VisitOperator(*plan);
 	});
 
 	// remove duplicate aggregates

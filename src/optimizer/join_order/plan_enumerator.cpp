@@ -527,6 +527,8 @@ unique_ptr<JoinNode> PlanEnumerator::SolveJoinOrder() {
 	bool force_no_cross_product = query_graph_manager.context.config.force_no_cross_product;
 	// first try to solve the join order exactly
 	if (!SolveJoinOrderExactly()) {
+		// plans.clear();
+		// InitLeafPlans();
 		// otherwise, if that times out we resort to a greedy algorithm
 		SolveJoinOrderApproximately();
 	}
@@ -555,9 +557,6 @@ unique_ptr<JoinNode> PlanEnumerator::SolveJoinOrder() {
 }
 
 unique_ptr<JoinNode> PlanEnumerator::SolveJoinOrderRandom() {
-	// at this point, we exited the dynamic programming but did not compute the final join order because it took too
-	// long instead, we use a greedy heuristic to obtain a join ordering now we use Greedy Operator Ordering to
-	// construct the result tree first we start out with all the base relations (the to-be-joined relations)
 	std::random_device rd;
 	std::mt19937 g(rd());
 	vector<reference<JoinRelationSet>> join_relations; // T in the paper

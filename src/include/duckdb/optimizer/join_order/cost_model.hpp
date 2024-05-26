@@ -10,6 +10,8 @@
 #include "duckdb/optimizer/join_order/join_node.hpp"
 #include "duckdb/optimizer/join_order/cardinality_estimator.hpp"
 
+#include <random>
+
 namespace duckdb {
 
 class QueryGraphManager;
@@ -21,6 +23,8 @@ public:
 private:
 	//! query graph storing relation manager information
 	QueryGraphManager &query_graph_manager;
+
+	std::mt19937 random_engine;
 
 public:
 	void InitCostModel();

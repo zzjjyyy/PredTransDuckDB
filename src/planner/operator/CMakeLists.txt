@@ -11,6 +11,7 @@ add_library_unity(
   logical_create_bf.cpp
   logical_create_index.cpp
   logical_create_table.cpp
+  logical_create_table_for_BF.cpp
   logical_cross_product.cpp
   logical_cteref.cpp
   logical_delete.cpp

@@ -25,7 +25,7 @@ LogicalGet& LogicalGetinFilter(LogicalOperator *op) {
 	}
 }
 
-void NodesManager::AddNode(LogicalOperator *op, const RelationStats &stats) {
+void NodesManager::AddNode(LogicalOperator *op) {
 	if(op->type == LogicalOperatorType::LOGICAL_GET) {
 		nodes[op->GetTableIndex()[0]] = op;
 	} else if (op->type == LogicalOperatorType::LOGICAL_FILTER) {
@@ -97,9 +97,7 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
     while (op->children.size() == 1 && !OperatorNeedsRelation(op->type)) {
 		if (op->type == LogicalOperatorType::LOGICAL_FILTER) {
 			if (op->children[0]->type == LogicalOperatorType::LOGICAL_GET) {
-				auto &get = LogicalGetinFilter(op);
-				auto stats = RelationStatisticsHelper::ExtractGetStats(get, context);
-				AddNode(op, stats);
+				AddNode(op);
 				return;
 			} else {
 				ExtractNodes(*op->children[0], filter_operators);
@@ -137,9 +135,7 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 		RelationStats child_stats;
 		PredicateTransferOptimizer optimizer(context);
 		op->children[0] = optimizer.Optimize(std::move(op->children[0]), &child_stats);
-		auto &window = op->Cast<LogicalWindow>();
-		auto operator_stats = RelationStatisticsHelper::ExtractWindowStats(window, child_stats);
-		AddNode(op, operator_stats);
+		AddNode(op);
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_COMPARISON_JOIN:
@@ -151,52 +147,32 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_DUMMY_SCAN: {
-		auto &dummy_scan = op->Cast<LogicalDummyScan>();
-		auto stats = RelationStatisticsHelper::ExtractDummyScanStats(dummy_scan, context);
-		AddNode(op, stats);
+		AddNode(op);
 	}
 	case LogicalOperatorType::LOGICAL_EXPRESSION_GET: {
 		// base table scan, add to set of relations.
 		// create empty stats for dummy scan or logical expression get
-		auto &expression_get = op->Cast<LogicalExpressionGet>();
-		auto stats = RelationStatisticsHelper::ExtractExpressionGetStats(expression_get, context);
-		AddNode(op, stats);
+		AddNode(op);
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_GET: {
 		// TODO: Get stats from a logical GET
-		auto &get = op->Cast<LogicalGet>();
-		auto stats = RelationStatisticsHelper::ExtractGetStats(get, context);
-		// if there is another logical filter that could not be pushed down into the
-		// table scan, apply another selectivity.
-		if (!datasource_filters.empty()) {
-			stats.cardinality =
-			    (idx_t)MaxValue(stats.cardinality * RelationStatisticsHelper::DEFAULT_SELECTIVITY, (double)1);
-		}
-		AddNode(op, stats);
+		AddNode(op);
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_DELIM_GET: {
-		auto &delim_get = op->Cast<LogicalDelimGet>();
-		auto stats = RelationStatisticsHelper::ExtractDelimGetStats(delim_get, context);
-		AddNode(op, stats);
+		AddNode(op);
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_PROJECTION: {
 		RelationStats child_stats;
 		PredicateTransferOptimizer optimizer(context);
 		op->children[0] = optimizer.Optimize(std::move(op->children[0]), &child_stats);
-		auto &project = op->Cast<LogicalProjection>();
-		auto stats = RelationStatisticsHelper::ExtractProjectionStats(project, child_stats);
-		AddNode(op, stats);
+		AddNode(op);
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_EMPTY_RESULT: {
-		// optimize the child and copy the stats
-		auto &empty_result = op->Cast<LogicalEmptyResult>();
-		// Projection can create columns so we need to add them here
-		auto stats = RelationStatisticsHelper::ExtractEmptyResultStats(empty_result);
-		AddNode(op, stats);
+		AddNode(op);
 		return;
 	}
 	default:

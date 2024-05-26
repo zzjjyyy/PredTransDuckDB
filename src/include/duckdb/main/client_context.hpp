@@ -27,6 +27,8 @@
 #include "duckdb/main/client_properties.hpp"
 
 namespace duckdb {
+extern int dist_range;
+
 class Appender;
 class Catalog;
 class CatalogSearchPath;

@@ -8,6 +8,7 @@
 #include "duckdb/planner/operator/logical_create_bf.hpp"
 #include "duckdb/planner/operator/logical_create_index.hpp"
 #include "duckdb/planner/operator/logical_create_table.hpp"
+#include "duckdb/planner/operator/logical_create_table_for_BF.hpp"
 #include "duckdb/planner/operator/logical_create_secret.hpp"
 #include "duckdb/planner/operator/logical_cross_product.hpp"
 #include "duckdb/planner/operator/logical_cteref.hpp"
