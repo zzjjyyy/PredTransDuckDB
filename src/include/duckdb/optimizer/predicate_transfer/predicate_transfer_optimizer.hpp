@@ -16,6 +16,7 @@ public:
     unique_ptr<LogicalOperator> InsertCreateBFOperator(unique_ptr<LogicalOperator> plan);
 
     unique_ptr<LogicalOperator> InsertCreateBFOperator_d(unique_ptr<LogicalOperator> plan);
+    
 private:   
 	ClientContext &context;
 
@@ -25,6 +26,9 @@ private:
 
     std::unordered_map<void*, unique_ptr<LogicalOperator>> replace_map_backward;
 
+    static std::unordered_map<std::string, int> table_exists;
+
+private:
     void GetColumnBindingExpression(Expression &expr, vector<BoundColumnRefExpression*> &expressions);
 
     vector<pair<ColumnBinding, shared_ptr<BlockedBloomFilter>>> CreateBloomFilter(LogicalOperator &node, bool reverse);
@@ -53,5 +57,7 @@ private:
 					   bool reverse);
 
     bool PossibleFilterAny(LogicalOperator &node, bool reverse);
+
+    unique_ptr<LogicalOperator> InsertCreateTable(unique_ptr<LogicalOperator> plan, LogicalOperator* plan_ptr);
 };
 }

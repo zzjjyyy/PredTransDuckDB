@@ -10,7 +10,7 @@ public:
 
     idx_t NumNodes();
 
-    void AddNode(LogicalOperator *op, const RelationStats &stats);
+    void AddNode(LogicalOperator *op);
 
 	void SortNodes();
 
