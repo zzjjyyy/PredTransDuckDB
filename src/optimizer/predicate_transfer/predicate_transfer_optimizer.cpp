@@ -370,11 +370,11 @@ unique_ptr<LogicalOperator> PredicateTransferOptimizer::InsertCreateBFOperator_d
 		ptr_next->AddChild(std::move(plan));
 		plan = std::move(itr_next->second);
 	}
-
+	/*
 	if (insert_create_table) {
 		plan = InsertCreateTable(std::move(plan), (LogicalOperator*)plan_ptr);
 	}
-
+	*/
 	return plan;
 }
 
