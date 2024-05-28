@@ -564,9 +564,6 @@ unique_ptr<JoinNode> PlanEnumerator::SolveJoinOrderRandom() {
 		join_relations.push_back(query_graph_manager.set_manager.GetJoinRelation(i));
 	}
 	while (join_relations.size() > 1) {
-		// now in every step of the algorithm, we greedily pick the join between the to-be-joined relations that has the
-		// smallest cost. This is O(r^2) per step, and every step will reduce the total amount of relations to-be-joined
-		// by 1, so the total cost is O(r^3) in the amount of relations
 		idx_t best_left = 0, best_right = 0;
 		optional_ptr<JoinNode> best_connection;
 		int cnt = 0;
@@ -586,15 +583,8 @@ unique_ptr<JoinNode> PlanEnumerator::SolveJoinOrderRandom() {
 			// check if we can connect these two relations
 			auto connection = query_graph.GetConnections(left, right);
 			if (!connection.empty()) {
-				// we can check the cost of this connection
 				auto &node = EmitPair(left, right, connection);
-
-				// update the DP tree in case a plan created by the DP algorithm uses the node
-				// that was potentially just updated by EmitPair. You will get a use-after-free
-				// error if future plans rely on the old node that was just replaced.
-				// if node in FullPath, then updateDP tree.
 				UpdateDPTree(node);
-
 				best_connection = &node;
 				best_left = i;
 				best_right = j;
@@ -605,11 +595,6 @@ unique_ptr<JoinNode> PlanEnumerator::SolveJoinOrderRandom() {
 		if (!best_connection) {
 			throw InvalidInputException("Query requires a cross-product");
 		}
-		// now update the to-be-checked pairs
-		// remove left and right, and add the combination
-
-		// important to erase the biggest element first
-		// if we erase the smallest element first the index of the biggest element changes
 		if (best_right > best_left) {
 			join_relations.erase(join_relations.begin() + best_right);
 			join_relations.erase(join_relations.begin() + best_left);
@@ -618,6 +603,82 @@ unique_ptr<JoinNode> PlanEnumerator::SolveJoinOrderRandom() {
 			join_relations.erase(join_relations.begin() + best_right);
 		}
 		join_relations.push_back(best_connection->set);
+
+	}
+	// now the optimal join path should have been found
+	// get it from the node
+	unordered_set<idx_t> bindings;
+	for (idx_t i = 0; i < query_graph_manager.relation_manager.NumRelations(); i++) {
+		bindings.insert(i);
+	}
+	auto &total_relation = query_graph_manager.set_manager.GetJoinRelation(bindings);
+	auto final_plan = plans.find(total_relation);
+	return std::move(final_plan->second);
+}
+
+unique_ptr<JoinNode> PlanEnumerator::SolveJoinOrderLeftDeepRandom() {
+	std::random_device rd;
+	std::mt19937 g(rd());
+	vector<reference<JoinRelationSet>> join_relations; // T in the paper
+	for (idx_t i = 0; i < query_graph_manager.relation_manager.NumRelations(); i++) {
+		join_relations.push_back(query_graph_manager.set_manager.GetJoinRelation(i));
+	}
+	optional_ptr<JoinNode> best_left_tree = nullptr;
+	while (join_relations.size() > 0) {
+		idx_t best_left = 0, best_right = 0;
+		optional_ptr<JoinNode> best_connection;
+		int cnt = 0;
+		while (true) {
+			if(cnt > 10000) {
+				std::cout << "random generate failed" << std::endl;
+				return SolveJoinOrder();
+			}
+			std::uniform_int_distribution<int> dist(0, join_relations.size() - 1);
+			if (best_left_tree == nullptr) {
+				int i = dist(g);
+				int j;
+				do {
+					j = dist(g);
+				} while (j == i);
+				auto left = join_relations[i];
+				auto right = join_relations[j];
+				// check if we can connect these two relations
+				auto connection = query_graph.GetConnections(left, right);
+				if (!connection.empty()) {
+					auto &node = EmitPair(left, right, connection);
+					UpdateDPTree(node);
+					best_connection = &node;
+					best_left = i;
+					best_right = j;
+					if (best_right > best_left) {
+						join_relations.erase(join_relations.begin() + best_right);
+						join_relations.erase(join_relations.begin() + best_left);
+					} else {
+						join_relations.erase(join_relations.begin() + best_left);
+						join_relations.erase(join_relations.begin() + best_right);
+					}
+					break;
+				}
+			} else {
+				int i = dist(g);
+				auto right = join_relations[i];
+				// check if we can connect these two relations
+				auto connection = query_graph.GetConnections(best_left_tree->set, right);
+				if (!connection.empty()) {
+					auto &node = EmitPair(best_left_tree->set, right, connection);
+					UpdateDPTree(node);
+					best_connection = &node;
+					best_right = i;
+					join_relations.erase(join_relations.begin() + best_right);
+					break;
+				}
+			}
+			cnt++;
+		}
+		if (!best_connection) {
+			throw InvalidInputException("Query requires a cross-product");
+		}
+		best_left_tree = best_connection;
 	}
 	// now the optimal join path should have been found
 	// get it from the node

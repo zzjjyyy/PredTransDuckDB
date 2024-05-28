@@ -50,6 +50,7 @@ unique_ptr<LogicalOperator> JoinOrderOptimizer::Optimize(unique_ptr<LogicalOpera
 		// Ask the plan enumerator to enumerate a number of join orders
 		auto final_plan = plan_enumerator.SolveJoinOrder();
 		// auto final_plan = plan_enumerator.SolveJoinOrderRandom();
+		// auto final_plan = plan_enumerator.SolveJoinOrderLeftDeepRandom();
 		// TODO: add in the check that if no plan exists, you have to add a cross product.
 
 		// now reconstruct a logical plan from the query graph plan
@@ -65,10 +66,11 @@ unique_ptr<LogicalOperator> JoinOrderOptimizer::Optimize(unique_ptr<LogicalOpera
 	// only perform left right optimizations when stats is null (means we have the top level optimize call)
 	// Don't check reorderability because non-reorderable joins will result in 1 relation, but we can
 	// still switch the children.
+	/*
 	if (stats == nullptr && HasJoin(new_logical_plan.get())) {
 		new_logical_plan = query_graph_manager.LeftRightOptimizations(std::move(new_logical_plan));
 	}
-
+	*/
 	// Propagate up a stats object from the top of the new_logical_plan if stats exist.
 	if (stats) {
 		auto cardinality = new_logical_plan->EstimateCardinality(context);
