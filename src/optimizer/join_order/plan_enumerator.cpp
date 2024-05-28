@@ -635,7 +635,14 @@ unique_ptr<JoinNode> PlanEnumerator::SolveJoinOrderLeftDeepRandom() {
 			}
 			std::uniform_int_distribution<int> dist(0, join_relations.size() - 1);
 			if (best_left_tree == nullptr) {
-				int i = dist(g);
+				double max = 0;
+				int i = -1;
+				for(int k = 0; k < join_relations.size(); k++) {
+					auto card = cost_model.cardinality_estimator.EstimateCardinalityWithSet<double>(join_relations[k]);
+					if (card > max) {
+						i = k;
+					}
+				}
 				int j;
 				do {
 					j = dist(g);
