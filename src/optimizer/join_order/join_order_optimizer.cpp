@@ -66,11 +66,10 @@ unique_ptr<LogicalOperator> JoinOrderOptimizer::Optimize(unique_ptr<LogicalOpera
 	// only perform left right optimizations when stats is null (means we have the top level optimize call)
 	// Don't check reorderability because non-reorderable joins will result in 1 relation, but we can
 	// still switch the children.
-	/*
 	if (stats == nullptr && HasJoin(new_logical_plan.get())) {
 		new_logical_plan = query_graph_manager.LeftRightOptimizations(std::move(new_logical_plan));
 	}
-	*/
+
 	// Propagate up a stats object from the top of the new_logical_plan if stats exist.
 	if (stats) {
 		auto cardinality = new_logical_plan->EstimateCardinality(context);
