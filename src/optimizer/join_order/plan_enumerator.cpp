@@ -556,6 +556,116 @@ unique_ptr<JoinNode> PlanEnumerator::SolveJoinOrder() {
 	return std::move(final_plan->second);
 }
 
+unique_ptr<JoinNode> PlanEnumerator::SolveJoinOrderLeftDeep() {
+	vector<reference<JoinRelationSet>> join_relations; // T in the paper
+	for (idx_t i = 0; i < query_graph_manager.relation_manager.NumRelations(); i++) {
+		join_relations.push_back(query_graph_manager.set_manager.GetJoinRelation(i));
+	}
+	optional_ptr<JoinNode> best_left_tree = nullptr;
+	for(int i = 0; i < join_relations.size(); i++) {
+		if (best_left_tree == nullptr) {
+			double max = 0;
+			int left = -1;
+			for(int j = 0; j < join_relations.size(); j++) {
+				auto card = cost_model.cardinality_estimator.EstimateCardinalityWithSet<double>(join_relations[j]);
+				if (card > max) {
+					left = j;
+				}
+			}
+		}
+	}
+	while (join_relations.size() > 0) {
+		idx_t best_left = 0, best_right = 0;
+		optional_ptr<JoinNode> best_connection;
+		int cnt = 0;
+		while (true) {
+			if (best_left_tree == nullptr) {
+				double max = 0;
+				int i = -1;
+				for(int k = 0; k < join_relations.size(); k++) {
+					auto card = cost_model.cardinality_estimator.EstimateCardinalityWithSet<double>(join_relations[k]);
+					if (card > max) {
+						i = k;
+						max = card;
+					}
+				}
+				double min = 1.7976931348623158e+308;
+				int j = -1;
+				for(int k = 0; k < join_relations.size(); k++) {
+					if (k == i) {
+						continue;
+					}
+					auto card = cost_model.cardinality_estimator.EstimateCardinalityWithSet<double>(join_relations[k]);
+					if (card < min) {
+						auto connection = query_graph.GetConnections(join_relations[i], join_relations[k]);
+						if (!connection.empty()) {
+							j = k;
+							min = card;
+						}
+					}
+				}
+				auto left = join_relations[i];
+				auto right = join_relations[j];
+				// check if we can connect these two relations
+				auto connection = query_graph.GetConnections(left, right);
+				if (!connection.empty()) {
+					auto &node = EmitPair(left, right, connection);
+					UpdateDPTree(node);
+					best_connection = &node;
+					best_left = i;
+					best_right = j;
+					if (best_right > best_left) {
+						join_relations.erase(join_relations.begin() + best_right);
+						join_relations.erase(join_relations.begin() + best_left);
+					} else {
+						join_relations.erase(join_relations.begin() + best_left);
+						join_relations.erase(join_relations.begin() + best_right);
+					}
+					break;
+				}
+			} else {
+				double min = 1.7976931348623158e+308;
+				int i = -1;
+				for(int k = 0; k < join_relations.size(); k++) {
+					auto card = cost_model.cardinality_estimator.EstimateCardinalityWithSet<double>(join_relations[k]);
+					if (card < min) {
+						auto connection = query_graph.GetConnections(best_left_tree->set, join_relations[k]);
+						if (!connection.empty()) {
+							i = k;
+							min = card;
+						}
+					}
+				}
+				auto right = join_relations[i];
+				// check if we can connect these two relations
+				auto connection = query_graph.GetConnections(best_left_tree->set, right);
+				if (!connection.empty()) {
+					auto &node = EmitPair(best_left_tree->set, right, connection);
+					UpdateDPTree(node);
+					best_connection = &node;
+					best_right = i;
+					join_relations.erase(join_relations.begin() + best_right);
+					break;
+				}
+			}
+			cnt++;
+		}
+		if (!best_connection) {
+			throw InvalidInputException("Query requires a cross-product");
+		}
+		best_left_tree = best_connection;
+	}
+	// now the optimal join path should have been found
+	// get it from the node
+	unordered_set<idx_t> bindings;
+	for (idx_t i = 0; i < query_graph_manager.relation_manager.NumRelations(); i++) {
+		bindings.insert(i);
+	}
+	auto &total_relation = query_graph_manager.set_manager.GetJoinRelation(bindings);
+	auto final_plan = plans.find(total_relation);
+	return std::move(final_plan->second);
+}
+
 unique_ptr<JoinNode> PlanEnumerator::SolveJoinOrderRandom() {
 	std::random_device rd;
 	std::mt19937 g(rd());
@@ -635,14 +745,7 @@ unique_ptr<JoinNode> PlanEnumerator::SolveJoinOrderLeftDeepRandom() {
 			}
 			std::uniform_int_distribution<int> dist(0, join_relations.size() - 1);
 			if (best_left_tree == nullptr) {
-				double max = 0;
-				int i = -1;
-				for(int k = 0; k < join_relations.size(); k++) {
-					auto card = cost_model.cardinality_estimator.EstimateCardinalityWithSet<double>(join_relations[k]);
-					if (card > max) {
-						i = k;
-					}
-				}
+				int i = dist(g);
 				int j;
 				do {
 					j = dist(g);
