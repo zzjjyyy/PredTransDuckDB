@@ -562,18 +562,6 @@ unique_ptr<JoinNode> PlanEnumerator::SolveJoinOrderLeftDeep() {
 		join_relations.push_back(query_graph_manager.set_manager.GetJoinRelation(i));
 	}
 	optional_ptr<JoinNode> best_left_tree = nullptr;
-	for(int i = 0; i < join_relations.size(); i++) {
-		if (best_left_tree == nullptr) {
-			double max = 0;
-			int left = -1;
-			for(int j = 0; j < join_relations.size(); j++) {
-				auto card = cost_model.cardinality_estimator.EstimateCardinalityWithSet<double>(join_relations[j]);
-				if (card > max) {
-					left = j;
-				}
-			}
-		}
-	}
 	while (join_relations.size() > 0) {
 		idx_t best_left = 0, best_right = 0;
 		optional_ptr<JoinNode> best_connection;
