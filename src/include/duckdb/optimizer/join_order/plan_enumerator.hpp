@@ -36,6 +36,7 @@ public:
 
 	//! Perform the join order solving
 	unique_ptr<JoinNode> SolveJoinOrder();
+	unique_ptr<JoinNode> SolveJoinOrderLeftDeep();
 	unique_ptr<JoinNode> SolveJoinOrderRandom();
 	unique_ptr<JoinNode> SolveJoinOrderLeftDeepRandom();
 	void InitLeafPlans();

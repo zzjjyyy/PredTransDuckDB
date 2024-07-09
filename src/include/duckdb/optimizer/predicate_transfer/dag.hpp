@@ -8,7 +8,7 @@ class DAGEdge;
 
 class DAGNode {
 public:
-    DAGNode(idx_t id, bool root) : id(id), root(root) {
+    DAGNode(idx_t id, idx_t estimated_cardinality, bool root) : id(id), size(estimated_cardinality), root(root) {
     }
 
     idx_t Id() {
@@ -28,6 +28,10 @@ public:
     vector<unique_ptr<DAGEdge>> out_;
 
     bool root;
+
+    int priority = -1;
+
+    idx_t size;
 
 private:
     idx_t id;

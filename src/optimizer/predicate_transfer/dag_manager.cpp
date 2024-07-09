@@ -3,6 +3,7 @@
 #include "duckdb/planner/operator/logical_get.hpp"
 #include "duckdb/planner/expression/bound_comparison_expression.hpp"
 #include "duckdb/optimizer/predicate_transfer/predicate_transfer_optimizer.hpp"
+#include <queue>
 
 namespace duckdb {
 bool DAGManager::Build(LogicalOperator &plan) {
@@ -113,112 +114,113 @@ void DAGManager::ExtractEdges(LogicalOperator &op,
 }
 
 void DAGManager::CreateDAG() {
+    std::queue<DAGNode*> list;
+    unordered_set<idx_t> met;
     auto &sorted_nodes = nodes_manager.getSortedNodes();
     // Create Vertices
     for(auto &vertex : nodes_manager.getNodes()) {
         // Set the last operator as root
         if(vertex.second == sorted_nodes.back()) {
-            nodes.nodes[vertex.first] = make_uniq<DAGNode>(vertex.first, true);
+            auto node = make_uniq<DAGNode>(vertex.first, vertex.second->estimated_cardinality, true);
+            list.push(node.get());
+            met.emplace(node->Id());
+            nodes.nodes[vertex.first] = std::move(node);
         } else {
-            nodes.nodes[vertex.first] = make_uniq<DAGNode>(vertex.first, false);
+            nodes.nodes[vertex.first] = make_uniq<DAGNode>(vertex.first, vertex.second->estimated_cardinality, false);
         }
     }
-    // Add Edge to the vertices
-    for (int i = sorted_nodes.size() - 1; i >= 0; i--) {
-        auto op = sorted_nodes[i];
-        // get the DAG Node from large to small by id index
-        idx_t node_id;
-        if (op->type == LogicalOperatorType::LOGICAL_GET) {
-            node_id = op->GetTableIndex()[0];
-        } else if (op->type == LogicalOperatorType::LOGICAL_FILTER) {
-            LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(*op);
-            node_id = get.GetTableIndex()[0];
-        } else if (op->type == LogicalOperatorType::LOGICAL_DELIM_GET) {
-            node_id = op->GetTableIndex()[0];
-        } else if (op->type == LogicalOperatorType::LOGICAL_PROJECTION) {
-            node_id = op->GetTableIndex()[0];
+    int prior_flag = 0;
+    while(!list.empty()) {
+        auto node = list.front();
+        node->priority = prior_flag++;
+        auto neighbors = GetNeighbors(node->Id());
+        for(auto i : neighbors) {
+            if (met.find(i->Id()) == met.end()) {
+                list.push(i);
+                met.emplace(i->Id());
+            }
         }
-        auto& node = nodes.nodes[node_id];
-        // Get the neighbor edge order by desc size
-        auto neighbors = GetNeighbors(node_id, sorted_nodes);
-        AddEdge(*node, neighbors);
+        ExecOrder.emplace_back(nodes_manager.getNode(node->Id()));
+        list.pop();
     }
-}
-
-vector<DAGEdgeInfo*> DAGManager::GetNeighbors(idx_t node_id, vector<LogicalOperator*> &sorted_nodes) {
-    vector<DAGEdgeInfo*> result;
     for (auto &filter_and_binding : filters_and_bindings_) {
         if(filter_and_binding) {
-            if(&filter_and_binding->in_ == nodes_manager.getNode(node_id)) {
-                result.emplace_back(filter_and_binding.get());
+            idx_t large;
+            if (filter_and_binding->large_.type == LogicalOperatorType::LOGICAL_GET) {
+                large = filter_and_binding->large_.GetTableIndex()[0];
+            } else if (filter_and_binding->large_.type == LogicalOperatorType::LOGICAL_FILTER) {
+                LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(filter_and_binding->large_);
+                large = get.GetTableIndex()[0];
+            } else if (filter_and_binding->large_.type == LogicalOperatorType::LOGICAL_DELIM_GET) {
+                large = filter_and_binding->large_.GetTableIndex()[0];
+            } else if (filter_and_binding->large_.type == LogicalOperatorType::LOGICAL_PROJECTION) {
+                large = filter_and_binding->large_.GetTableIndex()[0];
+            }
+            idx_t small;
+            if (filter_and_binding->small_.type == LogicalOperatorType::LOGICAL_GET) {
+                small = filter_and_binding->small_.GetTableIndex()[0];
+            } else if (filter_and_binding->small_.type == LogicalOperatorType::LOGICAL_FILTER) {
+                LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(filter_and_binding->small_);
+                small = get.GetTableIndex()[0];
+            } else if (filter_and_binding->small_.type == LogicalOperatorType::LOGICAL_DELIM_GET) {
+                small = filter_and_binding->small_.GetTableIndex()[0];
+            } else if (filter_and_binding->small_.type == LogicalOperatorType::LOGICAL_PROJECTION) {
+                small = filter_and_binding->small_.GetTableIndex()[0];
+            }
+            auto small_node = nodes.nodes[small].get();
+            auto large_node = nodes.nodes[large].get();
+            // smaller one has higher priority
+            if(small_node->priority < large_node->priority) {
+                small_node->AddIn(large_node->Id(), filter_and_binding->filter.get());
+                large_node->AddOut(small_node->Id(), filter_and_binding->filter.get());
+            } else {
+                small_node->AddOut(large_node->Id(), filter_and_binding->filter.get());
+                large_node->AddIn(small_node->Id(), filter_and_binding->filter.get());
             }
         }
     }
-    sort(result.begin(), result.end(), DAGManager::EdgesCmp);
+}
+
+vector<DAGNode*> DAGManager::GetNeighbors(idx_t node_id) {
+    vector<DAGNode*> result;
+    for (auto &filter_and_binding : filters_and_bindings_) {
+        if(filter_and_binding) {
+            if (&filter_and_binding->large_ == nodes_manager.getNode(node_id)) {
+                auto &op = filter_and_binding->small_;
+                idx_t another_node_id;
+                if (op.type == LogicalOperatorType::LOGICAL_GET) {
+                    another_node_id = op.GetTableIndex()[0];
+                } else if (op.type == LogicalOperatorType::LOGICAL_FILTER) {
+                    LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(op);
+                    another_node_id = get.GetTableIndex()[0];
+                } else if (op.type == LogicalOperatorType::LOGICAL_DELIM_GET) {
+                    another_node_id = op.GetTableIndex()[0];
+                } else if (op.type == LogicalOperatorType::LOGICAL_PROJECTION) {
+                    another_node_id = op.GetTableIndex()[0];
+                }
+                result.emplace_back(nodes.nodes[another_node_id].get());
+            } else if(&filter_and_binding->small_ == nodes_manager.getNode(node_id)) {
+                auto &op = filter_and_binding->large_;
+                idx_t another_node_id;
+                if (op.type == LogicalOperatorType::LOGICAL_GET) {
+                    another_node_id = op.GetTableIndex()[0];
+                } else if (op.type == LogicalOperatorType::LOGICAL_FILTER) {
+                    LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(op);
+                    another_node_id = get.GetTableIndex()[0];
+                } else if (op.type == LogicalOperatorType::LOGICAL_DELIM_GET) {
+                    another_node_id = op.GetTableIndex()[0];
+                } else if (op.type == LogicalOperatorType::LOGICAL_PROJECTION) {
+                    another_node_id = op.GetTableIndex()[0];
+                }
+                result.emplace_back(nodes.nodes[another_node_id].get());
+            }
+        }
+    }
+    sort(result.begin(), result.end(), DAGManager::DAGNodesCmp);
     return result;
 }
 
-void DAGManager::AddEdge(DAGNode &node, vector<DAGEdgeInfo*> &neighbors) {
-    if(node.root || (!node.root && node.out_.size() != 0)) {
-        for (auto &filter_and_binding : neighbors) {
-            idx_t out;
-            if (filter_and_binding->out_.type == LogicalOperatorType::LOGICAL_GET) {
-                out = filter_and_binding->out_.GetTableIndex()[0];
-            } else if (filter_and_binding->out_.type == LogicalOperatorType::LOGICAL_FILTER) {
-                LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(filter_and_binding->out_);
-                out = get.GetTableIndex()[0];
-            } else if (filter_and_binding->out_.type == LogicalOperatorType::LOGICAL_DELIM_GET) {
-                out = filter_and_binding->out_.GetTableIndex()[0];
-            } else if (filter_and_binding->out_.type == LogicalOperatorType::LOGICAL_PROJECTION) {
-                out = filter_and_binding->out_.GetTableIndex()[0];
-            }
-            node.AddIn(out, filter_and_binding->filter.get());
-            nodes.nodes[out]->AddOut(node.Id(), filter_and_binding->filter.get());
-        }
-    } else {
-        if (neighbors.size() > 0) {
-            auto& special_case = neighbors[0];
-            idx_t in;
-            if (special_case->out_.type == LogicalOperatorType::LOGICAL_GET) {
-                in = special_case->out_.GetTableIndex()[0];
-            } else if (special_case->out_.type == LogicalOperatorType::LOGICAL_FILTER) {
-                LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(special_case->out_);
-                in = get.GetTableIndex()[0];
-            } else if (special_case->out_.type == LogicalOperatorType::LOGICAL_DELIM_GET) {
-                in = special_case->out_.GetTableIndex()[0];
-            } else if (special_case->out_.type == LogicalOperatorType::LOGICAL_PROJECTION) {
-                in = special_case->out_.GetTableIndex()[0];
-            }
-            node.AddOut(in, special_case->filter.get());
-            nodes.nodes[in]->AddIn(node.Id(), special_case->filter.get());
-            if(std::find(ExecOrder.begin(), ExecOrder.end(), &special_case->out_) == ExecOrder.end()) {
-                ExecOrder.emplace_back(&special_case->out_);
-            }
-            for(int i = 1; i < neighbors.size(); i++) {
-                auto &filter_and_binding = neighbors[i];
-                idx_t out;
-                if (filter_and_binding->out_.type == LogicalOperatorType::LOGICAL_GET) {
-                    out = filter_and_binding->out_.GetTableIndex()[0];
-                } else if (filter_and_binding->out_.type == LogicalOperatorType::LOGICAL_FILTER) {
-                    LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(filter_and_binding->out_);
-                    out = get.GetTableIndex()[0];
-                } else if (filter_and_binding->out_.type == LogicalOperatorType::LOGICAL_DELIM_GET) {
-                    out = filter_and_binding->out_.GetTableIndex()[0];
-                } else if (filter_and_binding->out_.type == LogicalOperatorType::LOGICAL_PROJECTION) {
-                    out = filter_and_binding->out_.GetTableIndex()[0];
-                }
-                node.AddIn(out, filter_and_binding->filter.get());
-                nodes.nodes[out]->AddOut(node.Id(), filter_and_binding->filter.get());
-            }
-        }
-    }
-    auto op = nodes_manager.getNode(node.Id());
-    if(std::find(ExecOrder.begin(), ExecOrder.end(), op) == ExecOrder.end()) {
-        ExecOrder.emplace_back(op);
-    }
-}
-
-int DAGManager::EdgesCmp(DAGEdgeInfo* a, DAGEdgeInfo* b) {
-    return a->out_.estimated_cardinality > b->out_.estimated_cardinality;
+int DAGManager::DAGNodesCmp(DAGNode* a, DAGNode* b) {
+    return a->size > b->size;
 }
 }

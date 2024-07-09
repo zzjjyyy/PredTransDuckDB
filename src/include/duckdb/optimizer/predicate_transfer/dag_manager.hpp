@@ -10,12 +10,12 @@ namespace duckdb {
 
 class DAGEdgeInfo {
 public:
-    DAGEdgeInfo(unique_ptr<Expression> filter, LogicalOperator &in, LogicalOperator &out)
-	    : filter(std::move(filter)), in_(in), out_(out) {
+    DAGEdgeInfo(unique_ptr<Expression> filter, LogicalOperator &large, LogicalOperator &small)
+	    : filter(std::move(filter)), large_(large), small_(small) {
 	}
 
-    LogicalOperator &in_;
-    LogicalOperator &out_;
+    LogicalOperator &large_;
+    LogicalOperator &small_;
     unique_ptr<Expression> filter;
 };
 
@@ -47,10 +47,10 @@ private:
     
     void CreateDAG();
 
-    vector<DAGEdgeInfo*> GetNeighbors(idx_t node_id, vector<LogicalOperator*> &sorted_nodes);
+    vector<DAGNode*> GetNeighbors(idx_t node_id);
 
     void AddEdge(DAGNode &node, vector<DAGEdgeInfo*> &neighbors);
 
-    static int EdgesCmp(DAGEdgeInfo* a, DAGEdgeInfo* b);
+    static int DAGNodesCmp(DAGNode* a, DAGNode* b);
 };
 }
