@@ -113,8 +113,14 @@ void DAGManager::ExtractEdges(LogicalOperator &op,
     return;
 }
 
+struct DAGNodeCompare {
+    bool operator()(const DAGNode *lhs, const DAGNode *rhs) const {
+        return lhs->size < rhs->size;
+    }
+};
+
 void DAGManager::CreateDAG() {
-    std::queue<DAGNode*> list;
+    std::priority_queue<DAGNode*, vector<DAGNode*>, DAGNodeCompare> list;
     unordered_set<idx_t> met;
     auto &sorted_nodes = nodes_manager.getSortedNodes();
     // Create Vertices
@@ -129,10 +135,11 @@ void DAGManager::CreateDAG() {
             nodes.nodes[vertex.first] = make_uniq<DAGNode>(vertex.first, vertex.second->estimated_cardinality, false);
         }
     }
-    int prior_flag = 0;
+    int prior_flag = nodes_manager.NumNodes() - 1;
     while(!list.empty()) {
-        auto node = list.front();
-        node->priority = prior_flag++;
+        auto node = list.top();
+        list.pop();
+        node->priority = prior_flag--;
         auto neighbors = GetNeighbors(node->Id());
         for(auto i : neighbors) {
             if (met.find(i->Id()) == met.end()) {
@@ -141,7 +148,6 @@ void DAGManager::CreateDAG() {
             }
         }
         ExecOrder.emplace_back(nodes_manager.getNode(node->Id()));
-        list.pop();
     }
     for (auto &filter_and_binding : filters_and_bindings_) {
         if(filter_and_binding) {
@@ -170,7 +176,7 @@ void DAGManager::CreateDAG() {
             auto small_node = nodes.nodes[small].get();
             auto large_node = nodes.nodes[large].get();
             // smaller one has higher priority
-            if(small_node->priority < large_node->priority) {
+            if(small_node->priority > large_node->priority) {
                 small_node->AddIn(large_node->Id(), filter_and_binding->filter.get());
                 large_node->AddOut(small_node->Id(), filter_and_binding->filter.get());
             } else {
@@ -216,7 +222,6 @@ vector<DAGNode*> DAGManager::GetNeighbors(idx_t node_id) {
             }
         }
     }
-    sort(result.begin(), result.end(), DAGManager::DAGNodesCmp);
     return result;
 }
 
