@@ -22,6 +22,11 @@ public:
 class DAGManager {
 public:
     DAGManager(ClientContext &context) : nodes_manager(context), context(context) {
+        // std::random_device rd;
+        // auto seed = rd();
+        // auto seed = 3997808281; //2905338331 //495870445
+        // std::cout << seed << std::endl;
+	    // g.seed(seed);
     }
 
     //! Extract the join relations, optimizing non-reoderable relations when encountered
@@ -38,6 +43,8 @@ public:
     DAG nodes;
     
 private:
+    std::mt19937 g;
+
     vector<LogicalOperator*> ExecOrder;
     
     vector<unique_ptr<DAGEdgeInfo>> filters_and_bindings_;
@@ -45,6 +52,9 @@ private:
     void ExtractEdges(LogicalOperator &op,
                       vector<reference<LogicalOperator>> &filter_operators);
     
+    void LargestFirst(vector<LogicalOperator*> &sorted_nodes);
+    void RandomFirst(vector<LogicalOperator*> &sorted_nodes);
+
     void CreateDAG();
 
     vector<DAGNode*> GetNeighbors(idx_t node_id);

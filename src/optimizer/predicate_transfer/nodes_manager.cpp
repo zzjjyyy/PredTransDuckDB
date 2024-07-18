@@ -109,12 +109,15 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 
 	if (op->type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN || op->type == LogicalOperatorType::LOGICAL_DELIM_JOIN) {
 		auto &join = op->Cast<LogicalComparisonJoin>();
+		/*
 		if (join.join_type == JoinType::INNER
 		|| join.join_type == JoinType::LEFT
 		|| join.join_type == JoinType::RIGHT
 		|| join.join_type == JoinType::SEMI
 		|| join.join_type == JoinType::RIGHT_SEMI
-		|| join.join_type == JoinType::MARK) {
+		|| join.join_type == JoinType::MARK)
+		*/
+		if (join.join_type == JoinType::INNER || join.join_type == JoinType::MARK || join.join_type == JoinType::SEMI || join.join_type == JoinType::RIGHT_SEMI) {
 			for(auto &jc : join.conditions) {
 				if(jc.comparison == ExpressionType::COMPARE_EQUAL) {
 					filter_operators.push_back(*op);

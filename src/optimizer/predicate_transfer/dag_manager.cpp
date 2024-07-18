@@ -9,6 +9,7 @@ namespace duckdb {
 bool DAGManager::Build(LogicalOperator &plan) {
     vector<reference<LogicalOperator>> filter_operators;
     nodes_manager.ExtractNodes(plan, filter_operators);
+    auto& nodes = nodes_manager.getNodes();
     if(nodes_manager.NumNodes() < 2) {
         return false;
     }
@@ -17,6 +18,16 @@ bool DAGManager::Build(LogicalOperator &plan) {
 	ExtractEdges(plan, filter_operators);
     if(filters_and_bindings_.size() == 0) {
         return false;
+    }
+    for (auto itr = nodes.begin(); itr != nodes.end();) {
+        auto v = GetNeighbors(itr->first);
+        if (v.size() == 0) {
+            auto &sorted = nodes_manager.getSortedNodes();
+            sorted.erase(std::find(sorted.begin(), sorted.end(), itr->second));
+            itr = nodes_manager.getNodes().erase(itr);
+        } else {
+            itr++;
+        }
     }
 	// Create the query_graph hyper edges
 	CreateDAG();
@@ -119,10 +130,9 @@ struct DAGNodeCompare {
     }
 };
 
-void DAGManager::CreateDAG() {
+void DAGManager::LargestFirst(vector<LogicalOperator*> &sorted_nodes) {
     std::priority_queue<DAGNode*, vector<DAGNode*>, DAGNodeCompare> list;
     unordered_set<idx_t> met;
-    auto &sorted_nodes = nodes_manager.getSortedNodes();
     // Create Vertices
     for(auto &vertex : nodes_manager.getNodes()) {
         // Set the last operator as root
@@ -149,6 +159,46 @@ void DAGManager::CreateDAG() {
         }
         ExecOrder.emplace_back(nodes_manager.getNode(node->Id()));
     }
+}
+
+void DAGManager::RandomFirst(vector<LogicalOperator*> &sorted_nodes) {
+    std::priority_queue<DAGNode*, vector<DAGNode*>, DAGNodeCompare> list;
+    unordered_set<idx_t> met;
+    std::uniform_int_distribution<int> dist_1(0, nodes_manager.NumNodes() - 1);
+    std::uniform_int_distribution<idx_t> dist_2(0, 99999999999);
+	int root_id = dist_1(g);
+    // Create Vertices
+    for(auto &vertex : nodes_manager.getNodes()) {
+        // Set the last operator as root
+        if (vertex.second == sorted_nodes[root_id]) {
+            auto node = make_uniq<DAGNode>(vertex.first, dist_2(g), true);
+            list.push(node.get());
+            met.emplace(node->Id());
+            nodes.nodes[vertex.first] = std::move(node);
+        } else {
+            nodes.nodes[vertex.first] = make_uniq<DAGNode>(vertex.first, dist_2(g), false);
+        }
+    }
+    int prior_flag = nodes_manager.NumNodes() - 1;
+    while(!list.empty()) {
+        auto node = list.top();
+        list.pop();
+        node->priority = prior_flag--;
+        auto neighbors = GetNeighbors(node->Id());
+        for(auto i : neighbors) {
+            if (met.find(i->Id()) == met.end()) {
+                list.push(i);
+                met.emplace(i->Id());
+            }
+        }
+        ExecOrder.emplace_back(nodes_manager.getNode(node->Id()));
+    }
+}
+
+void DAGManager::CreateDAG() {
+    auto &sorted_nodes = nodes_manager.getSortedNodes();
+    LargestFirst(sorted_nodes);
+    // RandomFirst(sorted_nodes);
     for (auto &filter_and_binding : filters_and_bindings_) {
         if(filter_and_binding) {
             idx_t large;
