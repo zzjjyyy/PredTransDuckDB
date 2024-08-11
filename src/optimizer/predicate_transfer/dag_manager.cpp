@@ -42,10 +42,10 @@ vector<LogicalOperator*>& DAGManager::getExecOrder() {
 void DAGManager::Add(ColumnBinding create_table, shared_ptr<BlockedBloomFilter> use_bf, bool reverse) {
     if (!reverse) {
         auto in = use_bf->GetCol().table_index;
-        nodes.nodes[in]->AddIn(create_table.table_index, use_bf);
+        nodes.nodes[in]->AddIn(create_table.table_index, use_bf, true);
     } else {
         auto out = use_bf->GetCol().table_index;
-        nodes.nodes[out]->AddOut(create_table.table_index, use_bf);
+        nodes.nodes[out]->AddIn(create_table.table_index, use_bf, false);
     }
 }
 
@@ -81,11 +81,7 @@ void DAGManager::ExtractEdges(LogicalOperator &op,
                     if(right_node == nullptr) {
                         continue;
                     }
-                    if (join.join_type == JoinType::INNER
-                    || join.join_type == JoinType::SEMI
-                    || join.join_type == JoinType::RIGHT_SEMI
-                    || join.join_type == JoinType::MARK) {
-                        idx_t left_node_in_order = 0;
+                    idx_t left_node_in_order = 0;
                         for (idx_t i = 0; i < sorted_nodes.size(); i++) {
                             if(sorted_nodes[i] == left_node) {
                                 left_node_in_order = i;
@@ -99,6 +95,10 @@ void DAGManager::ExtractEdges(LogicalOperator &op,
                                break;
                             }
                         }
+                    if (join.join_type == JoinType::INNER
+                    || join.join_type == JoinType::SEMI
+                    || join.join_type == JoinType::RIGHT_SEMI
+                    || join.join_type == JoinType::MARK) {
                         if (left_node_in_order > right_node_in_order) {
                             auto filter_info = make_uniq<DAGEdgeInfo>(std::move(comparison), *left_node, *right_node);
                             filters_and_bindings_.push_back(std::move(filter_info));
@@ -107,13 +107,23 @@ void DAGManager::ExtractEdges(LogicalOperator &op,
                             filters_and_bindings_.push_back(std::move(filter_info));
                         }
                     } else if (join.join_type == JoinType::LEFT) {
-                        if (left_node->estimated_cardinality < right_node->estimated_cardinality) {
+                        if (left_node_in_order > right_node_in_order) {
+                            auto filter_info = make_uniq<DAGEdgeInfo>(std::move(comparison), *left_node, *right_node);
+                            filter_info->large_protect = true;
+                            filters_and_bindings_.push_back(std::move(filter_info));
+                        } else {
                             auto filter_info = make_uniq<DAGEdgeInfo>(std::move(comparison), *right_node, *left_node);
+                            filter_info->small_protect = true;
                             filters_and_bindings_.push_back(std::move(filter_info));
                         }
                     } else if (join.join_type == JoinType::RIGHT) {
-                        if (left_node->estimated_cardinality >= right_node->estimated_cardinality) {
+                        if (left_node_in_order > right_node_in_order) {
                             auto filter_info = make_uniq<DAGEdgeInfo>(std::move(comparison), *left_node, *right_node);
+                            filter_info->small_protect = true;
+                            filters_and_bindings_.push_back(std::move(filter_info));
+                        } else {
+                            auto filter_info = make_uniq<DAGEdgeInfo>(std::move(comparison), *right_node, *left_node);
+                            filter_info->large_protect = true;
                             filters_and_bindings_.push_back(std::move(filter_info));
                         }
                     }
@@ -202,36 +212,74 @@ void DAGManager::CreateDAG() {
     for (auto &filter_and_binding : filters_and_bindings_) {
         if(filter_and_binding) {
             idx_t large;
-            if (filter_and_binding->large_.type == LogicalOperatorType::LOGICAL_GET) {
-                large = filter_and_binding->large_.GetTableIndex()[0];
-            } else if (filter_and_binding->large_.type == LogicalOperatorType::LOGICAL_FILTER) {
-                LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(filter_and_binding->large_);
-                large = get.GetTableIndex()[0];
-            } else if (filter_and_binding->large_.type == LogicalOperatorType::LOGICAL_DELIM_GET) {
-                large = filter_and_binding->large_.GetTableIndex()[0];
-            } else if (filter_and_binding->large_.type == LogicalOperatorType::LOGICAL_PROJECTION) {
-                large = filter_and_binding->large_.GetTableIndex()[0];
+            switch(filter_and_binding->large_.type) {
+                case LogicalOperatorType::LOGICAL_GET:
+                case LogicalOperatorType::LOGICAL_DELIM_GET:
+                case LogicalOperatorType::LOGICAL_PROJECTION:
+                case LogicalOperatorType::LOGICAL_UNION:
+		        case LogicalOperatorType::LOGICAL_EXCEPT:
+		        case LogicalOperatorType::LOGICAL_INTERSECT: {
+                    large = filter_and_binding->large_.GetTableIndex()[0];
+                    break;
+                }
+                case LogicalOperatorType::LOGICAL_FILTER: {
+                    LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(filter_and_binding->large_);
+                    large = get.GetTableIndex()[0];
+                    break;
+                }
+                default: {
+                    break;
+                }
             }
             idx_t small;
-            if (filter_and_binding->small_.type == LogicalOperatorType::LOGICAL_GET) {
-                small = filter_and_binding->small_.GetTableIndex()[0];
-            } else if (filter_and_binding->small_.type == LogicalOperatorType::LOGICAL_FILTER) {
-                LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(filter_and_binding->small_);
-                small = get.GetTableIndex()[0];
-            } else if (filter_and_binding->small_.type == LogicalOperatorType::LOGICAL_DELIM_GET) {
-                small = filter_and_binding->small_.GetTableIndex()[0];
-            } else if (filter_and_binding->small_.type == LogicalOperatorType::LOGICAL_PROJECTION) {
-                small = filter_and_binding->small_.GetTableIndex()[0];
+            switch(filter_and_binding->small_.type) {
+                case LogicalOperatorType::LOGICAL_GET:
+                case LogicalOperatorType::LOGICAL_DELIM_GET:
+                case LogicalOperatorType::LOGICAL_PROJECTION:
+                case LogicalOperatorType::LOGICAL_UNION:
+		        case LogicalOperatorType::LOGICAL_EXCEPT:
+		        case LogicalOperatorType::LOGICAL_INTERSECT: {
+                    small = filter_and_binding->small_.GetTableIndex()[0];
+                    break;
+                }
+                case LogicalOperatorType::LOGICAL_FILTER: {
+                    LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(filter_and_binding->small_);
+                    small = get.GetTableIndex()[0];
+                    break;
+                }
+                default: {
+                    break;
+                }
             }
             auto small_node = nodes.nodes[small].get();
             auto large_node = nodes.nodes[large].get();
             // smaller one has higher priority
             if(small_node->priority > large_node->priority) {
-                small_node->AddIn(large_node->Id(), filter_and_binding->filter.get());
-                large_node->AddOut(small_node->Id(), filter_and_binding->filter.get());
+                if(!filter_and_binding->large_protect && !filter_and_binding->small_protect) {
+                    small_node->AddIn(large_node->Id(), filter_and_binding->filter.get(), true);
+                    small_node->AddOut(large_node->Id(), filter_and_binding->filter.get(), false);
+                    large_node->AddOut(small_node->Id(), filter_and_binding->filter.get(), true);
+                    large_node->AddIn(small_node->Id(), filter_and_binding->filter.get(), false);
+                } else if (filter_and_binding->large_protect && !filter_and_binding->small_protect) {
+                    small_node->AddIn(large_node->Id(), filter_and_binding->filter.get(), true);
+                    large_node->AddOut(small_node->Id(), filter_and_binding->filter.get(), true);
+                } else if (!filter_and_binding->large_protect && filter_and_binding->small_protect) {
+                    small_node->AddOut(large_node->Id(), filter_and_binding->filter.get(), false);
+                    large_node->AddIn(small_node->Id(), filter_and_binding->filter.get(), false);
+                }
             } else {
-                small_node->AddOut(large_node->Id(), filter_and_binding->filter.get());
-                large_node->AddIn(small_node->Id(), filter_and_binding->filter.get());
+                if(!filter_and_binding->large_protect && !filter_and_binding->small_protect) {
+                    small_node->AddOut(large_node->Id(), filter_and_binding->filter.get(), true);
+                    small_node->AddIn(large_node->Id(), filter_and_binding->filter.get(), false);
+                    large_node->AddIn(small_node->Id(), filter_and_binding->filter.get(), true);
+                    large_node->AddOut(small_node->Id(), filter_and_binding->filter.get(), false);
+                } else if (filter_and_binding->large_protect && !filter_and_binding->small_protect) {
+                    small_node->AddIn(large_node->Id(), filter_and_binding->filter.get(), false);
+                    large_node->AddOut(small_node->Id(), filter_and_binding->filter.get(), false);
+                } else if (!filter_and_binding->large_protect && filter_and_binding->small_protect) {
+                    small_node->AddOut(large_node->Id(), filter_and_binding->filter.get(), true);
+                    large_node->AddIn(small_node->Id(), filter_and_binding->filter.get(), true);
+                }
             }
         }
     }
@@ -244,29 +292,47 @@ vector<DAGNode*> DAGManager::GetNeighbors(idx_t node_id) {
             if (&filter_and_binding->large_ == nodes_manager.getNode(node_id)) {
                 auto &op = filter_and_binding->small_;
                 idx_t another_node_id;
-                if (op.type == LogicalOperatorType::LOGICAL_GET) {
-                    another_node_id = op.GetTableIndex()[0];
-                } else if (op.type == LogicalOperatorType::LOGICAL_FILTER) {
-                    LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(op);
-                    another_node_id = get.GetTableIndex()[0];
-                } else if (op.type == LogicalOperatorType::LOGICAL_DELIM_GET) {
-                    another_node_id = op.GetTableIndex()[0];
-                } else if (op.type == LogicalOperatorType::LOGICAL_PROJECTION) {
-                    another_node_id = op.GetTableIndex()[0];
+                switch(op.type) {
+                    case LogicalOperatorType::LOGICAL_GET:
+                    case LogicalOperatorType::LOGICAL_DELIM_GET:
+                    case LogicalOperatorType::LOGICAL_PROJECTION:
+                    case LogicalOperatorType::LOGICAL_UNION:
+	                case LogicalOperatorType::LOGICAL_EXCEPT:
+	                case LogicalOperatorType::LOGICAL_INTERSECT: {
+                        another_node_id = op.GetTableIndex()[0];
+                        break;
+                    }
+                    case LogicalOperatorType::LOGICAL_FILTER: {
+                        LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(op);
+                        another_node_id = get.GetTableIndex()[0];
+                        break;
+                    }
+                    default: {
+                        break;
+                    }
                 }
                 result.emplace_back(nodes.nodes[another_node_id].get());
             } else if(&filter_and_binding->small_ == nodes_manager.getNode(node_id)) {
                 auto &op = filter_and_binding->large_;
                 idx_t another_node_id;
-                if (op.type == LogicalOperatorType::LOGICAL_GET) {
-                    another_node_id = op.GetTableIndex()[0];
-                } else if (op.type == LogicalOperatorType::LOGICAL_FILTER) {
-                    LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(op);
-                    another_node_id = get.GetTableIndex()[0];
-                } else if (op.type == LogicalOperatorType::LOGICAL_DELIM_GET) {
-                    another_node_id = op.GetTableIndex()[0];
-                } else if (op.type == LogicalOperatorType::LOGICAL_PROJECTION) {
-                    another_node_id = op.GetTableIndex()[0];
+                switch(op.type) {
+                    case LogicalOperatorType::LOGICAL_GET:
+                    case LogicalOperatorType::LOGICAL_DELIM_GET:
+                    case LogicalOperatorType::LOGICAL_PROJECTION:
+                    case LogicalOperatorType::LOGICAL_UNION:
+	                case LogicalOperatorType::LOGICAL_EXCEPT:
+	                case LogicalOperatorType::LOGICAL_INTERSECT: {
+                        another_node_id = op.GetTableIndex()[0];
+                        break;
+                    }
+                    case LogicalOperatorType::LOGICAL_FILTER: {
+                        LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(op);
+                        another_node_id = get.GetTableIndex()[0];
+                        break;
+                    }
+                    default: {
+                        break;
+                    }
                 }
                 result.emplace_back(nodes.nodes[another_node_id].get());
             }

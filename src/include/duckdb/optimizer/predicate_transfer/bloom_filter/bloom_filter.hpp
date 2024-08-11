@@ -273,7 +273,7 @@ private:
   std::shared_ptr<arrow::Buffer> buf_;
   
   // Pointer to mutable data owned by Buffer
-  uint64_t* blocks_;
+  uint64_t* blocks_ = nullptr;
   // std::atomic<uint64_t>* blocks_;
 
   bool Used_;

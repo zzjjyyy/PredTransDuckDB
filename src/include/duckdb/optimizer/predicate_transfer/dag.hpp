@@ -15,17 +15,18 @@ public:
         return id;
     }
 
-    void AddIn(idx_t from, Expression* filter);
+    void AddIn(idx_t from, Expression* filter,  bool forward);
 
-    void AddIn(idx_t from, shared_ptr<BlockedBloomFilter> bloom_filter);
+    void AddIn(idx_t from, shared_ptr<BlockedBloomFilter> bloom_filter, bool forward);
 
-    void AddOut(idx_t to, Expression* filter);
+    void AddOut(idx_t to, Expression* filter, bool forward);
 
-    void AddOut(idx_t to, shared_ptr<BlockedBloomFilter> bloom_filter);
+    void AddOut(idx_t to, shared_ptr<BlockedBloomFilter> bloom_filter, bool forward);
 
-    vector<unique_ptr<DAGEdge>> in_;
-
-    vector<unique_ptr<DAGEdge>> out_;
+    vector<unique_ptr<DAGEdge>> forward_in_;
+    vector<unique_ptr<DAGEdge>> backward_in_;
+    vector<unique_ptr<DAGEdge>> forward_out_;
+    vector<unique_ptr<DAGEdge>> backward_out_;
 
     bool root;
 

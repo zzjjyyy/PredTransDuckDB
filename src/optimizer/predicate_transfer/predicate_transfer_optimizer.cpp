@@ -14,6 +14,7 @@
 #include "duckdb/planner/operator/logical_create_table_for_BF.hpp"
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/planner/operator/logical_projection.hpp"
+#include "duckdb/planner/operator/logical_set_operation.hpp"
 #include "duckdb/main/database_manager.hpp"
 #include "duckdb/main/attached_database.hpp"
 #include "duckdb/main/client_data.hpp"
@@ -179,25 +180,44 @@ vector<pair<ColumnBinding, shared_ptr<BlockedBloomFilter>>> PredicateTransferOpt
 
 idx_t PredicateTransferOptimizer::GetNodeId(LogicalOperator &node) {
 	idx_t res = -1;
-	if (node.type == LogicalOperatorType::LOGICAL_GET) {
-		auto &get = node.Cast<LogicalGet>();
-		res = get.GetTableIndex()[0];
-	} else if (node.type == LogicalOperatorType::LOGICAL_FILTER) {
-		auto &get = LogicalGetinFilter(node);
-		res = get.GetTableIndex()[0];
-	} else if (node.type == LogicalOperatorType::LOGICAL_DELIM_GET) {
-		auto &delim_get = node.Cast<LogicalDelimGet>();
-		res = delim_get.GetTableIndex()[0];
-	} else if (node.type == LogicalOperatorType::LOGICAL_PROJECTION) {
-		auto &project = node.Cast<LogicalProjection>();
-		res = project.GetTableIndex()[0];
+	switch(node.type) {
+		case LogicalOperatorType::LOGICAL_GET: {
+			auto &get = node.Cast<LogicalGet>();
+			res = get.GetTableIndex()[0];
+			break;
+		}
+		case LogicalOperatorType::LOGICAL_FILTER: {
+			auto &get = LogicalGetinFilter(node);
+			res = get.GetTableIndex()[0];
+			break;
+		}
+		case LogicalOperatorType::LOGICAL_DELIM_GET: {
+			auto &delim_get = node.Cast<LogicalDelimGet>();
+			res = delim_get.GetTableIndex()[0];
+			break;
+		} 
+		case LogicalOperatorType::LOGICAL_PROJECTION: {
+			auto &project = node.Cast<LogicalProjection>();
+			res = project.GetTableIndex()[0];
+			break;
+		}
+		case LogicalOperatorType::LOGICAL_UNION:
+		case LogicalOperatorType::LOGICAL_EXCEPT:
+		case LogicalOperatorType::LOGICAL_INTERSECT: {
+			auto &setop = node.Cast<LogicalSetOperation>();
+			res = setop.GetTableIndex()[0];
+			break;
+		}
+		default: {
+            break;
+        }
 	}
 	return res;
 }
 
 void PredicateTransferOptimizer::GetAllBFUsed(idx_t cur, vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_use, vector<idx_t> &depend_nodes, bool reverse) {
 	if(!reverse) {
-		for(auto &edge : dag_manager.nodes.nodes[cur]->in_) {
+		for(auto &edge : dag_manager.nodes.nodes[cur]->forward_in_) {
 			for(auto bloom_filter : edge->bloom_filters) {
 				if(!bloom_filter->isUsed())  {
 					bloom_filter->setUsed();
@@ -208,7 +228,7 @@ void PredicateTransferOptimizer::GetAllBFUsed(idx_t cur, vector<shared_ptr<Block
 		}
 	} else {
 		/* Further to do, remove the duplicate blooom filter */
-		for(auto &edge : dag_manager.nodes.nodes[cur]->out_) {
+		for(auto &edge : dag_manager.nodes.nodes[cur]->backward_in_) {
 			for(auto bloom_filter : edge->bloom_filters) {
 				if(!bloom_filter->isUsed())  {
 					bloom_filter->setUsed();
@@ -222,7 +242,7 @@ void PredicateTransferOptimizer::GetAllBFUsed(idx_t cur, vector<shared_ptr<Block
 
 void PredicateTransferOptimizer::GetAllBFCreate(idx_t cur, unordered_map<idx_t, vector<shared_ptr<BlockedBloomFilter>>> &temp_result_to_create, bool reverse) {
 	if (!reverse) {
-		for(auto &edge : dag_manager.nodes.nodes[cur]->out_) {
+		for(auto &edge : dag_manager.nodes.nodes[cur]->forward_out_) {
 			// Each Expression leads to a bloom filter on a column on this table
 			for (auto &expr : edge->filters) {
 				vector<BoundColumnRefExpression*> expressions;
@@ -241,7 +261,7 @@ void PredicateTransferOptimizer::GetAllBFCreate(idx_t cur, unordered_map<idx_t, 
 			}
 		}
 	} else {
-		for(auto &edge : dag_manager.nodes.nodes[cur]->in_) {
+		for(auto &edge : dag_manager.nodes.nodes[cur]->backward_out_) {
 			// Each Expression leads to a bloom filter on a column on this table
 			for (auto &expr : edge->filters) {
 				vector<BoundColumnRefExpression*> expressions;
@@ -380,40 +400,24 @@ unique_ptr<LogicalOperator> PredicateTransferOptimizer::InsertCreateBFOperator_d
 
 bool PredicateTransferOptimizer::PossibleFilterAny(LogicalOperator &node, bool reverse) {
 	if(!reverse) {
-		if (node.type == LogicalOperatorType::LOGICAL_FILTER) {
-			return true;
-		} else if (node.type == LogicalOperatorType::LOGICAL_GET) {
+		if (node.type == LogicalOperatorType::LOGICAL_GET) {
 			auto& get = node.Cast<LogicalGet>();
 			if(get.table_filters.filters.size() == 0) {
 				return false;
-			} else {
-				return true;
 			}
-		} else if (node.type == LogicalOperatorType::LOGICAL_DELIM_GET) {
-			return true;
-		} else if (node.type == LogicalOperatorType::LOGICAL_PROJECTION) {
-			return true;
+		} else if (node.type == LogicalOperatorType::LOGICAL_UNION) {
+			return false;
 		}
 	} else {
-		if(replace_map_forward.find(&node) != replace_map_forward.end()) {
-			return true;
-		} else {
+		if (replace_map_forward.find(&node) == replace_map_forward.end()) {
 			if (node.type == LogicalOperatorType::LOGICAL_GET) {
 				auto& get = node.Cast<LogicalGet>();
-				if (get.table_filters.filters.size() != 0) {
-					return true;
+				if (get.table_filters.filters.size() == 0) {
+					return false;
 				}
-			} else if (node.type == LogicalOperatorType::LOGICAL_FILTER) {
-				auto& get = LogicalGetinFilter(node);
-				if (get.table_filters.filters.size() != 0) {
-					return true;
-				}
-			} else if (node.type == LogicalOperatorType::LOGICAL_DELIM_GET) {
-				return true;
-			} else if (node.type == LogicalOperatorType::LOGICAL_PROJECTION) {
-				return true;
+			} else if (node.type == LogicalOperatorType::LOGICAL_UNION) {
+				return false;
 			}
-			return false;
 		}
 	}
 	return true;

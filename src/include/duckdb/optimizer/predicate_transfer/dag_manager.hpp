@@ -17,6 +17,8 @@ public:
     LogicalOperator &large_;
     LogicalOperator &small_;
     unique_ptr<Expression> filter;
+    bool large_protect = false;
+    bool small_protect = false;
 };
 
 class DAGManager {
