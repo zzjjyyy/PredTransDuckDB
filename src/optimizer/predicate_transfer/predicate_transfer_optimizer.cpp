@@ -117,8 +117,8 @@ void PredicateTransferOptimizer::GetColumnBindingExpression(Expression &expr, ve
 }
 
 /* Further to do, test filter operator */
-vector<pair<ColumnBinding, shared_ptr<BlockedBloomFilter>>> PredicateTransferOptimizer::CreateBloomFilter(LogicalOperator &node, bool reverse) {
-	vector<pair<ColumnBinding, shared_ptr<BlockedBloomFilter>>> result;
+vector<pair<idx_t, shared_ptr<BlockedBloomFilter>>> PredicateTransferOptimizer::CreateBloomFilter(LogicalOperator &node, bool reverse) {
+	vector<pair<idx_t, shared_ptr<BlockedBloomFilter>>> result;
 	idx_t cur = GetNodeId(node);
 	if(dag_manager.nodes.nodes.find(cur) == dag_manager.nodes.nodes.end()) {
 		return result;
@@ -129,7 +129,7 @@ vector<pair<ColumnBinding, shared_ptr<BlockedBloomFilter>>> PredicateTransferOpt
 	GetAllBFUsed(cur, temp_result_to_use, depend_nodes, reverse);
 	
 	// Create Bloom Filter
-	unordered_map<idx_t, vector<shared_ptr<BlockedBloomFilter>>> temp_result_to_create;
+	vector<shared_ptr<BlockedBloomFilter>> temp_result_to_create;
 	GetAllBFCreate(cur, temp_result_to_create, reverse);
 	
 	if(temp_result_to_use.size() == 0) {
@@ -140,10 +140,8 @@ vector<pair<ColumnBinding, shared_ptr<BlockedBloomFilter>>> PredicateTransferOpt
 				return result;
 			}
 			auto create_bf = BuildSingleCreateOperator(node, temp_result_to_create);
-			for (auto &filter_vec : create_bf->bf_to_create) {
-				for(auto bf : filter_vec.second) {
-					result.emplace_back(make_pair(ColumnBinding(cur, filter_vec.first), bf));
-				}
+			for (auto &filter : create_bf->bf_to_create) {
+				result.emplace_back(make_pair(cur, filter));
 			}
 			if(!reverse) {
 				replace_map_forward[&node] = std::move(create_bf);
@@ -163,10 +161,8 @@ vector<pair<ColumnBinding, shared_ptr<BlockedBloomFilter>>> PredicateTransferOpt
 			return result;
 		} else {
 			auto create_bf = BuildCreateUsePair(node, temp_result_to_use, temp_result_to_create, depend_nodes, reverse);
-			for (auto &filter_vec : create_bf->bf_to_create) {
-				for(auto bf : filter_vec.second) {
-					result.emplace_back(make_pair(ColumnBinding(cur, filter_vec.first), bf));
-				}
+			for (auto &filter : create_bf->bf_to_create) {
+				result.emplace_back(make_pair(cur, filter));
 			}
 			if(!reverse) {
 				replace_map_forward[&node] = std::move(create_bf);
@@ -240,51 +236,48 @@ void PredicateTransferOptimizer::GetAllBFUsed(idx_t cur, vector<shared_ptr<Block
 	}
 }
 
-void PredicateTransferOptimizer::GetAllBFCreate(idx_t cur, unordered_map<idx_t, vector<shared_ptr<BlockedBloomFilter>>> &temp_result_to_create, bool reverse) {
+void PredicateTransferOptimizer::GetAllBFCreate(idx_t cur, vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_create, bool reverse) {
 	if (!reverse) {
 		for(auto &edge : dag_manager.nodes.nodes[cur]->forward_out_) {
+			auto cur_filter = make_shared<BlockedBloomFilter>();
 			// Each Expression leads to a bloom filter on a column on this table
 			for (auto &expr : edge->filters) {
 				vector<BoundColumnRefExpression*> expressions;
 				GetColumnBindingExpression(*expr, expressions);
-				D_ASSERT(expressions.size() == 2);
 				if (expressions[0]->binding.table_index == cur) {
-					auto cur_filter = make_shared<BlockedBloomFilter>(expressions[1]->binding);
-					// insert origin column id
-					temp_result_to_create[expressions[0]->binding.column_index].emplace_back(cur_filter);
+					cur_filter->AddColumnBindingApplied(expressions[1]->binding);
+					cur_filter->AddColumnBindingBuilt(expressions[0]->binding);
 				} else if (expressions[1]->binding.table_index == cur) {
-					// insert origin column id
-					auto cur_filter = make_shared<BlockedBloomFilter>(expressions[0]->binding);
-					// insert origin column id
-					temp_result_to_create[expressions[1]->binding.column_index].emplace_back(cur_filter);
+					cur_filter->AddColumnBindingApplied(expressions[0]->binding);
+					cur_filter->AddColumnBindingBuilt(expressions[1]->binding);
 				}
 			}
+			temp_result_to_create.emplace_back(cur_filter);
 		}
 	} else {
 		for(auto &edge : dag_manager.nodes.nodes[cur]->backward_out_) {
+			auto cur_filter = make_shared<BlockedBloomFilter>();
 			// Each Expression leads to a bloom filter on a column on this table
 			for (auto &expr : edge->filters) {
 				vector<BoundColumnRefExpression*> expressions;
 				GetColumnBindingExpression(*expr, expressions);
 				D_ASSERT(expressions.size() == 2);
 				if (expressions[0]->binding.table_index == cur) {
-					auto cur_filter = make_shared<BlockedBloomFilter>(expressions[1]->binding);
-					// insert origin column id
-					temp_result_to_create[expressions[0]->binding.column_index].emplace_back(cur_filter);
+					cur_filter->AddColumnBindingApplied(expressions[1]->binding);
+					cur_filter->AddColumnBindingBuilt(expressions[0]->binding);
 				} else if (expressions[1]->binding.table_index == cur) {
-					// insert origin column id
-					auto cur_filter = make_shared<BlockedBloomFilter>(expressions[0]->binding);
-					// insert origin column id
-					temp_result_to_create[expressions[1]->binding.column_index].emplace_back(cur_filter);
+					cur_filter->AddColumnBindingApplied(expressions[0]->binding);
+					cur_filter->AddColumnBindingBuilt(expressions[1]->binding);
 				}
 			}
+			temp_result_to_create.emplace_back(cur_filter);
 		}
 	}
 }
 
 unique_ptr<LogicalCreateBF>
 PredicateTransferOptimizer::BuildSingleCreateOperator(LogicalOperator &node,
-											 		  unordered_map<idx_t, vector<shared_ptr<BlockedBloomFilter>>> &temp_result_to_create) {
+											 		  vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_create) {
 	auto create_bf = make_uniq<LogicalCreateBF>(temp_result_to_create);
 	create_bf->has_estimated_cardinality = true;
 	create_bf->estimated_cardinality = node.estimated_cardinality;
@@ -299,7 +292,7 @@ PredicateTransferOptimizer::BuildUseOperator(LogicalOperator &node,
 	D_ASSERT(temp_result_to_use.size() == depend_nodes.size());
 	unique_ptr<LogicalUseBF> pre_use_bf;
 	unique_ptr<LogicalUseBF> use_bf;
-	// This is important for performance, not use for (int i = 0; i < temp_result_to_use.size(); i++)
+	// This is important for performance, not use (int i = 0; i < temp_result_to_use.size(); i++)
 	// for (int i = 0; i < temp_result_to_use.size(); i++) {
 	for (int i = temp_result_to_use.size() - 1; i >= 0; i--) {
 		vector<shared_ptr<BlockedBloomFilter>> v;
@@ -335,7 +328,7 @@ PredicateTransferOptimizer::BuildUseOperator(LogicalOperator &node,
 unique_ptr<LogicalCreateBF>
 PredicateTransferOptimizer::BuildCreateUsePair(LogicalOperator &node,
 											   vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_use,
-											   unordered_map<idx_t, vector<shared_ptr<BlockedBloomFilter>>> &temp_result_to_create,
+											   vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_create,
 											   vector<idx_t> &depend_nodes,
 											   bool reverse) {
 	auto use_bf = BuildUseOperator(node, temp_result_to_use, depend_nodes, reverse);

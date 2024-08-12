@@ -31,17 +31,17 @@ private:
 private:
     void GetColumnBindingExpression(Expression &expr, vector<BoundColumnRefExpression*> &expressions);
 
-    vector<pair<ColumnBinding, shared_ptr<BlockedBloomFilter>>> CreateBloomFilter(LogicalOperator &node, bool reverse);
+    vector<pair<idx_t, shared_ptr<BlockedBloomFilter>>> CreateBloomFilter(LogicalOperator &node, bool reverse);
 
     idx_t GetNodeId(LogicalOperator &node);
 
     void GetAllBFUsed(idx_t cur, vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_use, vector<idx_t> &depend_nodes, bool reverse);
 
-    void GetAllBFCreate(idx_t cur, unordered_map<idx_t, vector<shared_ptr<BlockedBloomFilter>>> &temp_result_to_create, bool reverse);
+    void GetAllBFCreate(idx_t cur, vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_create, bool reverse);
 
     unique_ptr<LogicalCreateBF>
     BuildSingleCreateOperator(LogicalOperator &node,
-							  unordered_map<idx_t, vector<shared_ptr<BlockedBloomFilter>>> &temp_result_to_create);
+							  vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_create);
 
     unique_ptr<LogicalUseBF>
     BuildUseOperator(LogicalOperator &node,
@@ -52,7 +52,7 @@ private:
     unique_ptr<LogicalCreateBF>
     BuildCreateUsePair(LogicalOperator &node,
                        vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_use,
-					   unordered_map<idx_t, vector<shared_ptr<BlockedBloomFilter>>> &temp_result_to_create,
+					   vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_create,
                        vector<idx_t> &depend_nodes,
 					   bool reverse);
 

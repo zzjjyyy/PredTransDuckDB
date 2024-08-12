@@ -859,8 +859,9 @@ unique_ptr<QueryResult> ClientContext::Query(const string &query, bool allow_str
 	// struct rusage sEnd;
 	// getrusage(RUSAGE_SELF, &sEnd);
 	gettimeofday(&t2, NULL);
-	size_t found = query.find("SELECT");
-	if(found != std::string::npos) {
+	size_t found_1 = query.find("SELECT");
+	size_t found_2 = query.find("CREATE");
+	if(found_1 != std::string::npos && found_2 == std::string::npos) {
 		FILE* fp = fopen("result.txt", "a+");
 		double totalTime = (t2.tv_sec - t1.tv_sec) + (t2.tv_usec - t1.tv_usec) / 1000000.0;
 		// double usr = timeDiff(&sBegin.ru_utime, &sEnd.ru_utime);

@@ -280,6 +280,10 @@ arrow::Status BloomFilterBuilder_SingleThreaded::PushNextBatch(size_t /*thread_i
   return arrow::Status::OK();
 }
 
+vector<idx_t> BloomFilterBuilder_SingleThreaded::BuiltCols() {
+  return build_target_->BoundColsBuilt;
+}
+
 void BloomFilterBuilder_SingleThreaded::PushNextBatchImp(int64_t num_rows,
                                                          const uint64_t* hashes) {
   build_target_->Insert(hardware_flags_, num_rows, hashes);
@@ -308,6 +312,10 @@ arrow::Status BloomFilterBuilder_Parallel::PushNextBatch(size_t thread_id, int64
                                                   const uint64_t* hashes) {
   PushNextBatchImp(thread_id, num_rows, hashes);
   return arrow::Status::OK();
+}
+
+vector<idx_t> BloomFilterBuilder_Parallel::BuiltCols() {
+  return build_target_->BoundColsBuilt;
 }
 
 void BloomFilterBuilder_Parallel::PushNextBatchImp(size_t thread_id, int64_t num_rows,

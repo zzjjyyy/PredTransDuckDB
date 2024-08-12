@@ -36,7 +36,7 @@ public:
 
     vector<LogicalOperator*>& getExecOrder();
 
-    void Add(ColumnBinding create_table, shared_ptr<BlockedBloomFilter> use_bf, bool reverse);
+    void Add(idx_t create_table, shared_ptr<BlockedBloomFilter> use_bf, bool reverse);
 
     NodesManager nodes_manager;
 

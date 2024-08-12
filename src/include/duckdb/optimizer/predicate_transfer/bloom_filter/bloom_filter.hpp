@@ -101,12 +101,20 @@ class BlockedBloomFilter {
   friend class BloomFilterBuilder_Parallel;
 
 public:
-  BlockedBloomFilter(ColumnBinding column_binding)
-    : column_binding_(column_binding), private_masks_(nullptr), log_num_blocks_(0), num_blocks_(0),
+  BlockedBloomFilter()
+    : private_masks_(nullptr), log_num_blocks_(0), num_blocks_(0),
     blocks_(nullptr), use_64bit_hashes_(true), Used_(false) {}
-  BlockedBloomFilter(ColumnBinding column_binding, int log_num_blocks, bool use_64bit_hashes) :
-    column_binding_(column_binding), log_num_blocks_(log_num_blocks), num_blocks_(1ULL << log_num_blocks_),
+  BlockedBloomFilter(int log_num_blocks, bool use_64bit_hashes) :
+    log_num_blocks_(log_num_blocks), num_blocks_(1ULL << log_num_blocks_),
     use_64bit_hashes_(use_64bit_hashes), Used_(false) {}
+
+  void AddColumnBindingApplied(ColumnBinding column_binding) {
+    column_bindings_applied_.emplace_back(column_binding);
+  }
+
+  void AddColumnBindingBuilt(ColumnBinding column_binding) {
+    column_bindings_built_.emplace_back(column_binding);
+  }
 
   inline bool Find(uint64_t hash) const {
     uint64_t m = mask(hash);
@@ -120,8 +128,12 @@ public:
   void Find(int64_t hardware_flags, int64_t num_rows, const uint64_t* hashes,
             SelectionVector &sel, idx_t &result_count, bool enable_prefetch = true) const;
 
-  ColumnBinding GetCol() {
-    return column_binding_;
+  vector<ColumnBinding> GetColApplied() {
+    return column_bindings_applied_;
+  }
+
+  vector<ColumnBinding> GetColBuilt() {
+    return column_bindings_built_;
   }
 
   int log_num_blocks() const { return log_num_blocks_; }
@@ -183,8 +195,10 @@ public:
   static constexpr int64_t kNumBlocksUsedBy32Bit = 1 << kNumBitsBlocksUsedBy32Bit;
   static constexpr int64_t kMaxNumRowsFor32Bit = kNumBlocksUsedBy32Bit * 64 / kMinNumBitsPerKey;
   
-  idx_t Ref;
+  vector<idx_t> BoundColsApplied;
 
+  vector<idx_t> BoundColsBuilt;
+  
   arrow::Status CreateEmpty(int64_t num_rows_to_insert, arrow::MemoryPool* pool);
 
   void Insert(int64_t hardware_flags, int64_t num_rows, const uint64_t* hashes);
@@ -253,8 +267,12 @@ private:
   static constexpr int64_t kPrefetchLimitBytes = 256 * 1024;
 
   static BloomFilterMasks masks_;
-
-  ColumnBinding column_binding_;
+  
+  // The columns applied this BF
+  vector<ColumnBinding> column_bindings_applied_;
+  
+  // The columns build this BF
+  vector<ColumnBinding> column_bindings_built_;
 
   // Used when receiving bloom filters from other nodes, where
   // the same masks should be used instead of the static one.
@@ -303,6 +321,9 @@ public:
   virtual int64_t num_tasks() const { return 0; }
   virtual arrow::Status PushNextBatch(size_t thread_index, int64_t num_rows,
                                const uint64_t* hashes) = 0;
+
+  virtual vector<idx_t> BuiltCols() = 0;
+
   virtual void CleanUp() {}
 
   virtual void Merge() {}
@@ -316,6 +337,8 @@ public:
 
   arrow::Status PushNextBatch(size_t /*thread_index*/, int64_t num_rows,
                        const uint64_t* hashes) override;
+
+  vector<idx_t> BuiltCols() override;
 
 private:
   void PushNextBatchImp(int64_t num_rows, const uint64_t* hashes);
@@ -337,6 +360,8 @@ class ARROW_ACERO_EXPORT BloomFilterBuilder_Parallel : public BloomFilterBuilder
 
     void Merge() override;
 
+    vector<idx_t> BuiltCols() override;
+  
   private:
     void PushNextBatchImp(size_t thread_id, int64_t num_rows, const uint64_t* hashes);
 

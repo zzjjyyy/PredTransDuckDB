@@ -19,8 +19,7 @@ OperatorResultType PhysicalUseBF::ExecuteInternal(ExecutionContext &context, Dat
     idx_t result_count = input.size();
 	SelectionVector sel(STANDARD_VECTOR_SIZE);
 	auto bf = bf_to_use[0];
-    Vector &result = input.data[bf->Ref];
-	BloomFilterUseKernel::filter(result, bf, sel, result_count, row_num);
+	BloomFilterUseKernel::filter(input.data, bf, sel, result_count, row_num);
 	if (result_count == row_num) {
 		// nothing was filtered: skip adding any selection vectors
 		chunk.Reference(input);

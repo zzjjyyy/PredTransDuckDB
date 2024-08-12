@@ -12,7 +12,7 @@ class BloomFilterUseKernel {
 public:
   // use vanilla bloom filter (reuse column indices made by the caller)
   static void
-  filter(const Vector &result,
+  filter(const vector<Vector> &result,
          shared_ptr<BlockedBloomFilter> bloom_filter,
          SelectionVector &sel,
          idx_t &approved_tuple_count,

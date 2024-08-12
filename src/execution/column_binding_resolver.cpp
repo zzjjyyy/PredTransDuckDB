@@ -133,13 +133,13 @@ void ColumnBindingResolver::VisitOperator(LogicalOperator &op) {
 	case LogicalOperatorType::LOGICAL_CREATE_BF: {
 		VisitOperatorChildren(op);
 		auto &create_bf = op.Cast<LogicalCreateBF>();
-		for (auto &bf_vec : create_bf.bf_to_create) {
-			for (idx_t i = 0; i < bindings.size(); i++) {
-				if (bf_vec.first == bindings[i].column_index) {
-					for(auto bf : bf_vec.second) {
-						create_bf.bf_to_create_bind[i].emplace_back(bf);
+		for (auto &bf : create_bf.bf_to_create) {
+			for(auto &colbind : bf->GetColBuilt()) {
+				for (idx_t i = 0; i < bindings.size(); i++) {
+					if (colbind == bindings[i]) {
+						bf->BoundColsBuilt.emplace_back(i);
+						break;
 					}
-					break;
 				}
 			}
 		}
@@ -150,10 +150,12 @@ void ColumnBindingResolver::VisitOperator(LogicalOperator &op) {
 		VisitOperatorChildren(op);
 		auto &use_bf = op.Cast<LogicalUseBF>();
 		for (auto bf : use_bf.bf_to_use) {
-			for (idx_t i = 0; i < bindings.size(); i++) {
-				if (bf->GetCol() == bindings[i]) {
-					bf->Ref = i;
-					break;
+			for (auto& colbind : bf->GetColApplied()) {
+				for (idx_t i = 0; i < bindings.size(); i++) {
+					if (colbind == bindings[i]) {
+						bf->BoundColsApplied.emplace_back(i);
+						break;
+					}
 				}
 			}
 		}

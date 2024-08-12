@@ -12,7 +12,7 @@
 #include <thread>
 
 namespace duckdb {
-PhysicalCreateBF::PhysicalCreateBF(vector<LogicalType> types, unordered_map<idx_t, vector<shared_ptr<BlockedBloomFilter>>> bf, idx_t estimated_cardinality)
+PhysicalCreateBF::PhysicalCreateBF(vector<LogicalType> types, vector<shared_ptr<BlockedBloomFilter>> bf, idx_t estimated_cardinality)
     : PhysicalOperator(PhysicalOperatorType::CREATE_BF, std::move(types), estimated_cardinality), bf_to_create(bf) {
 };
 
@@ -29,7 +29,7 @@ public:
 	mutex glock;
 	const PhysicalCreateBF &op;
 	ColumnDataCollection total_data;
-	unordered_map<idx_t, vector<shared_ptr<BloomFilterBuilder>>> builders;
+	vector<shared_ptr<BloomFilterBuilder>> builders;
 	vector<unique_ptr<ColumnDataCollection>> local_data_collections;
 };
 
@@ -94,12 +94,14 @@ public:
 			DataChunk chunk;
 			sink.total_data.InitializeScanChunk(chunk);
 			sink.total_data.FetchChunk(i, chunk);
-			for(auto &filter_builder_vec : sink.builders) {
+			for(auto &builder : sink.builders) {
+				auto cols = builder->BuiltCols();
 				Vector hashes(LogicalType::HASH);
-				VectorOperations::Hash(chunk.data[filter_builder_vec.first], hashes, chunk.size());
-				for(auto &filter_builder : filter_builder_vec.second) {
-					filter_builder->PushNextBatch(thread_id, chunk.size(), (hash_t*)hashes.GetData());
+				VectorOperations::Hash(chunk.data[cols[0]], hashes, chunk.size());
+				for(int i = 1; i < cols.size(); i++) {
+					VectorOperations::CombineHash(hashes, chunk.data[cols[i]], chunk.size());
 				}
+				builder->PushNextBatch(thread_id, chunk.size(), (hash_t*)hashes.GetData());	
 			}
 		}
 		event->FinishTask();
@@ -183,17 +185,15 @@ SinkFinalizeType PhysicalCreateBF::Finalize(Pipeline &pipeline, Event &event, Cl
 	sink.local_data_collections.clear();
 	int64_t num_rows = sink.total_data.Count();
 	const idx_t num_threads = TaskScheduler::GetScheduler(context).NumberOfThreads();
-	for (auto &filter_vec : bf_to_create) {
-		for(auto &filter : filter_vec.second) {
-			if (num_threads == 1) {
-				auto builder = make_shared<BloomFilterBuilder_SingleThreaded>();
-				builder->Begin(1, arrow::internal::CpuInfo::AVX2, arrow::default_memory_pool(), num_rows, 0, filter.get());
-				sink.builders[filter_vec.first].emplace_back(builder);
-			} else {
-				auto builder = make_shared<BloomFilterBuilder_Parallel>();
-				builder->Begin(num_threads, arrow::internal::CpuInfo::AVX2, arrow::default_memory_pool(), num_rows, 0, filter.get());
-				sink.builders[filter_vec.first].emplace_back(builder);
-			}
+	for (auto &filter : bf_to_create) {
+		if (num_threads == 1) {
+			auto builder = make_shared<BloomFilterBuilder_SingleThreaded>();
+			builder->Begin(1, arrow::internal::CpuInfo::AVX2, arrow::default_memory_pool(), num_rows, 0, filter.get());
+			sink.builders.emplace_back(builder);
+		} else {
+			auto builder = make_shared<BloomFilterBuilder_Parallel>();
+			builder->Begin(num_threads, arrow::internal::CpuInfo::AVX2, arrow::default_memory_pool(), num_rows, 0, filter.get());
+			sink.builders.emplace_back(builder);
 		}
 	}
 
