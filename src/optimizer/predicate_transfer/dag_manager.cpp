@@ -3,6 +3,7 @@
 #include "duckdb/planner/operator/logical_get.hpp"
 #include "duckdb/planner/expression/bound_comparison_expression.hpp"
 #include "duckdb/optimizer/predicate_transfer/predicate_transfer_optimizer.hpp"
+#include "duckdb/planner/expression/bound_columnref_expression.hpp"
 #include <queue>
 
 namespace duckdb {
@@ -66,19 +67,24 @@ void DAGManager::ExtractEdges(LogicalOperator &op,
 				    make_uniq<BoundComparisonExpression>(cond.comparison, cond.left->Copy(), cond.right->Copy());
 				if (filter_set.find(*comparison) == filter_set.end()) {
 					filter_set.insert(*comparison);
-					unordered_set<idx_t> left_bindings;
-					LogicalJoin::GetExpressionBindings(*comparison->left, left_bindings);
-                    unordered_set<idx_t> right_bindings;
-					LogicalJoin::GetExpressionBindings(*comparison->right, right_bindings);
-                    D_ASSERT(left_bindings.size() == 1 && right_bindings.size() == 1);
-                    idx_t left_binding = *left_bindings.begin();
-                    idx_t right_binding = *right_bindings.begin();
-                    auto left_node = nodes_manager.getNode(left_binding);
-                    if(left_node == nullptr) {
+					ColumnBinding left_binding;
+					if (comparison->left->type == ExpressionType::BOUND_COLUMN_REF) {
+		                auto &colref = comparison->left->Cast<BoundColumnRefExpression>();
+		                left_binding = colref.binding;
+	                }
+                    ColumnBinding right_binding;
+					if (comparison->right->type == ExpressionType::BOUND_COLUMN_REF) {
+		                auto &colref = comparison->right->Cast<BoundColumnRefExpression>();
+		                right_binding = colref.binding;
+	                }
+                    idx_t left_table = nodes_manager.FindRename(left_binding).table_index;
+                    idx_t right_table = nodes_manager.FindRename(right_binding).table_index;
+                    auto left_node = nodes_manager.getNode(left_table);
+                    if (left_node == nullptr) {
                         continue;
                     }
-                    auto right_node = nodes_manager.getNode(right_binding);
-                    if(right_node == nullptr) {
+                    auto right_node = nodes_manager.getNode(right_table);
+                    if (right_node == nullptr) {
                         continue;
                     }
                     idx_t left_node_in_order = 0;

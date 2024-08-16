@@ -36,6 +36,8 @@ public:
 	
 	void ExtractNodes(LogicalOperator &plan, vector<reference<LogicalOperator>> &filter_operators);
 
+	ColumnBinding FindRename(ColumnBinding col);
+
 private:
 	ClientContext &context;
 
@@ -45,5 +47,19 @@ private:
 	vector<LogicalOperator*> sort_nodes;
 
 	static int nodesCmp(LogicalOperator *a, LogicalOperator *b);
+
+	struct HashFunc {
+    	size_t operator()(const ColumnBinding& key) const {
+        	return std::hash<uint64_t>()(key.table_index) ^ std::hash<uint64_t>()(key.column_index);
+    	}
+	};
+
+	struct CmpFunc {
+    	bool operator()(const ColumnBinding& a, const ColumnBinding& b) const {
+        	return (a.table_index == b.table_index) && (a.column_index == b.column_index);
+    	}
+	};
+
+	unordered_map<ColumnBinding, ColumnBinding, HashFunc, CmpFunc> rename_cols;
 };
 }

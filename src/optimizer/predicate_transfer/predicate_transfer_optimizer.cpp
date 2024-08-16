@@ -235,12 +235,12 @@ void PredicateTransferOptimizer::GetAllBFCreate(idx_t cur, vector<shared_ptr<Blo
 			for (auto &expr : edge->filters) {
 				vector<BoundColumnRefExpression*> expressions;
 				GetColumnBindingExpression(*expr, expressions);
-				if (expressions[0]->binding.table_index == cur) {
-					cur_filter->AddColumnBindingApplied(expressions[1]->binding);
-					cur_filter->AddColumnBindingBuilt(expressions[0]->binding);
-				} else if (expressions[1]->binding.table_index == cur) {
-					cur_filter->AddColumnBindingApplied(expressions[0]->binding);
-					cur_filter->AddColumnBindingBuilt(expressions[1]->binding);
+				if (dag_manager.nodes_manager.FindRename(expressions[0]->binding).table_index == cur) {
+					cur_filter->AddColumnBindingApplied(dag_manager.nodes_manager.FindRename(expressions[1]->binding));
+					cur_filter->AddColumnBindingBuilt(dag_manager.nodes_manager.FindRename(expressions[0]->binding));
+				} else if (dag_manager.nodes_manager.FindRename(expressions[1]->binding).table_index == cur) {
+					cur_filter->AddColumnBindingApplied(dag_manager.nodes_manager.FindRename(expressions[0]->binding));
+					cur_filter->AddColumnBindingBuilt(dag_manager.nodes_manager.FindRename(expressions[1]->binding));
 				}
 			}
 			temp_result_to_create.emplace_back(cur_filter);
@@ -253,12 +253,12 @@ void PredicateTransferOptimizer::GetAllBFCreate(idx_t cur, vector<shared_ptr<Blo
 				vector<BoundColumnRefExpression*> expressions;
 				GetColumnBindingExpression(*expr, expressions);
 				D_ASSERT(expressions.size() == 2);
-				if (expressions[0]->binding.table_index == cur) {
-					cur_filter->AddColumnBindingApplied(expressions[1]->binding);
-					cur_filter->AddColumnBindingBuilt(expressions[0]->binding);
-				} else if (expressions[1]->binding.table_index == cur) {
-					cur_filter->AddColumnBindingApplied(expressions[0]->binding);
-					cur_filter->AddColumnBindingBuilt(expressions[1]->binding);
+				if (dag_manager.nodes_manager.FindRename(expressions[0]->binding).table_index == cur) {
+					cur_filter->AddColumnBindingApplied(dag_manager.nodes_manager.FindRename(expressions[1]->binding));
+					cur_filter->AddColumnBindingBuilt(dag_manager.nodes_manager.FindRename(expressions[0]->binding));
+				} else if (dag_manager.nodes_manager.FindRename(expressions[1]->binding).table_index == cur) {
+					cur_filter->AddColumnBindingApplied(dag_manager.nodes_manager.FindRename(expressions[0]->binding));
+					cur_filter->AddColumnBindingBuilt(dag_manager.nodes_manager.FindRename(expressions[1]->binding));
 				}
 			}
 			temp_result_to_create.emplace_back(cur_filter);

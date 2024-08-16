@@ -9,6 +9,7 @@
 #include "duckdb/planner/operator/logical_projection.hpp"
 #include "duckdb/planner/operator/logical_window.hpp"
 #include "duckdb/optimizer/predicate_transfer/predicate_transfer_optimizer.hpp"
+#include "duckdb/planner/expression/bound_columnref_expression.hpp"
 #include <pthread.h>
 
 namespace duckdb {
@@ -25,6 +26,18 @@ LogicalGet& LogicalGetinFilter(LogicalOperator *op) {
 	} else {
 		return op->Cast<LogicalGet>();
 	}
+}
+
+ColumnBinding NodesManager::FindRename(ColumnBinding col) {
+	auto itr = rename_cols.find(col);
+	ColumnBinding res = col;
+	if (itr != rename_cols.end()) {
+		res = itr->second;
+		for (auto cur_itr = rename_cols.find(res); cur_itr != rename_cols.end(); cur_itr = rename_cols.find(res)) {
+			res = cur_itr->second;
+		}
+	}
+	return res;
 }
 
 void NodesManager::AddNode(LogicalOperator *op) {
@@ -91,6 +104,7 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 		op = op->children[0].get();
 	}
 
+	bool join_connected = false;
 	if (op->type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN || op->type == LogicalOperatorType::LOGICAL_DELIM_JOIN) {
 		auto &join = op->Cast<LogicalComparisonJoin>();
 		if (join.join_type == JoinType::INNER
@@ -100,8 +114,11 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 		|| join.join_type == JoinType::RIGHT_SEMI
 		|| join.join_type == JoinType::MARK) {
 			for(auto &jc : join.conditions) {
-				if(jc.comparison == ExpressionType::COMPARE_EQUAL) {
+				if(jc.comparison == ExpressionType::COMPARE_EQUAL
+				&& jc.left->type == ExpressionType::BOUND_COLUMN_REF
+				&& jc.right->type == ExpressionType::BOUND_COLUMN_REF) {
 					filter_operators.push_back(*op);
+					join_connected = true;
 					break;
 				}
 			}
@@ -120,6 +137,13 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 			op->children[0] = optimizer.Optimize(std::move(op->children[0]), &child_stats);
 			AddNode(op);
 		} else {
+			for (int i = 0; i < agg.groups.size(); i++) {
+				auto &expr = agg.groups[i];
+				if (expr->type == ExpressionType::BOUND_COLUMN_REF) {
+					auto &colref = expr->Cast<BoundColumnRefExpression>();
+					rename_cols.insert(std::make_pair(agg.GetColumnBindings()[i], colref.binding));
+				}
+			}
 			ExtractNodes(*op->children[0], filter_operators);
 		}
 		return;
@@ -137,9 +161,17 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 	case LogicalOperatorType::LOGICAL_CROSS_PRODUCT:
 	case LogicalOperatorType::LOGICAL_ANY_JOIN:
 	case LogicalOperatorType::LOGICAL_ASOF_JOIN: {
-		// Adding relations to the current join order optimizer
-		ExtractNodes(*op->children[0], filter_operators);
-		ExtractNodes(*op->children[1], filter_operators);
+		if (join_connected) {
+			// Adding relations to the current join order optimizer
+			ExtractNodes(*op->children[0], filter_operators);
+			ExtractNodes(*op->children[1], filter_operators);
+		} else {
+			for(int i = 0; i < op->children.size(); i++) {
+				RelationStats child_stats;
+				PredicateTransferOptimizer optimizer(context);
+				op->children[i] = optimizer.Optimize(std::move(op->children[i]), &child_stats);
+			}
+		}
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_DUMMY_SCAN: {
@@ -162,10 +194,20 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_PROJECTION: {
+		/*
 		RelationStats child_stats;
 		PredicateTransferOptimizer optimizer(context);
 		op->children[0] = optimizer.Optimize(std::move(op->children[0]), &child_stats);
 		AddNode(op);
+		*/
+		for (int i = 0; i < op->expressions.size(); i++) {
+			auto &expr = op->expressions[i];
+			if (expr->type == ExpressionType::BOUND_COLUMN_REF) {
+				auto &colref = expr->Cast<BoundColumnRefExpression>();
+				rename_cols.insert(std::make_pair(op->GetColumnBindings()[i], colref.binding));
+			}
+		}
+		ExtractNodes(*op->children[0], filter_operators);
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_EMPTY_RESULT: {
@@ -175,14 +217,20 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 	case LogicalOperatorType::LOGICAL_UNION:
 	case LogicalOperatorType::LOGICAL_EXCEPT:
 	case LogicalOperatorType::LOGICAL_INTERSECT: {
-		RelationStats child_stats;
-		PredicateTransferOptimizer optimizer(context);
-		op->children[0] = optimizer.Optimize(std::move(op->children[0]), &child_stats);
-		op->children[1] = optimizer.Optimize(std::move(op->children[1]), &child_stats);
+		for (int i = 0; i < op->children.size(); i++) {
+			RelationStats child_stats;
+			PredicateTransferOptimizer optimizer(context);
+			op->children[i] = optimizer.Optimize(std::move(op->children[i]), &child_stats);
+		}
 		AddNode(op);
 		return;
 	}
 	default:
+		for (int i = 0; i < op->children.size(); i++) {
+			RelationStats child_stats;
+			PredicateTransferOptimizer optimizer(context);
+			op->children[i] = optimizer.Optimize(std::move(op->children[i]), &child_stats);
+		}
 		return;
 	}
 }
