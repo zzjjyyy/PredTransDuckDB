@@ -177,9 +177,13 @@ vector<pair<idx_t, shared_ptr<BlockedBloomFilter>>> PredicateTransferOptimizer::
 idx_t PredicateTransferOptimizer::GetNodeId(LogicalOperator &node) {
 	idx_t res = -1;
 	switch(node.type) {
-		case LogicalOperatorType::LOGICAL_GET: {
-			auto &get = node.Cast<LogicalGet>();
-			res = get.GetTableIndex()[0];
+		case LogicalOperatorType::LOGICAL_GET:
+		case LogicalOperatorType::LOGICAL_DELIM_GET:
+		case LogicalOperatorType::LOGICAL_PROJECTION:
+		case LogicalOperatorType::LOGICAL_UNION:
+		case LogicalOperatorType::LOGICAL_EXCEPT:
+		case LogicalOperatorType::LOGICAL_INTERSECT: {
+			res = node.GetTableIndex()[0];
 			break;
 		}
 		case LogicalOperatorType::LOGICAL_FILTER: {
@@ -187,21 +191,8 @@ idx_t PredicateTransferOptimizer::GetNodeId(LogicalOperator &node) {
 			res = get.GetTableIndex()[0];
 			break;
 		}
-		case LogicalOperatorType::LOGICAL_DELIM_GET: {
-			auto &delim_get = node.Cast<LogicalDelimGet>();
-			res = delim_get.GetTableIndex()[0];
-			break;
-		} 
-		case LogicalOperatorType::LOGICAL_PROJECTION: {
-			auto &project = node.Cast<LogicalProjection>();
-			res = project.GetTableIndex()[0];
-			break;
-		}
-		case LogicalOperatorType::LOGICAL_UNION:
-		case LogicalOperatorType::LOGICAL_EXCEPT:
-		case LogicalOperatorType::LOGICAL_INTERSECT: {
-			auto &setop = node.Cast<LogicalSetOperation>();
-			res = setop.GetTableIndex()[0];
+		case LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY: {
+			res = node.GetTableIndex()[1];
 			break;
 		}
 		default: {

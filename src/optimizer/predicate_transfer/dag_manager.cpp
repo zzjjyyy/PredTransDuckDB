@@ -227,6 +227,10 @@ void DAGManager::CreateDAG() {
                     large = get.GetTableIndex()[0];
                     break;
                 }
+                case LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY: {
+                    large = filter_and_binding->large_.GetTableIndex()[1];
+                    break;
+                }
                 default: {
                     break;
                 }
@@ -245,6 +249,10 @@ void DAGManager::CreateDAG() {
                 case LogicalOperatorType::LOGICAL_FILTER: {
                     LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(filter_and_binding->small_);
                     small = get.GetTableIndex()[0];
+                    break;
+                }
+                case LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY: {
+                    small = filter_and_binding->small_.GetTableIndex()[1];
                     break;
                 }
                 default: {
@@ -307,6 +315,10 @@ vector<DAGNode*> DAGManager::GetNeighbors(idx_t node_id) {
                         another_node_id = get.GetTableIndex()[0];
                         break;
                     }
+                    case LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY: {
+                        another_node_id = op.GetTableIndex()[1];
+                        break;
+                    }
                     default: {
                         break;
                     }
@@ -328,6 +340,10 @@ vector<DAGNode*> DAGManager::GetNeighbors(idx_t node_id) {
                     case LogicalOperatorType::LOGICAL_FILTER: {
                         LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(op);
                         another_node_id = get.GetTableIndex()[0];
+                        break;
+                    }
+                    case LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY: {
+                        another_node_id = op.GetTableIndex()[1];
                         break;
                     }
                     default: {

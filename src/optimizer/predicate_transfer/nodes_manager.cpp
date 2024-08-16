@@ -43,6 +43,10 @@ void NodesManager::AddNode(LogicalOperator *op) {
 			nodes[children.GetTableIndex()[0]] = op;
 			break;
 		}
+		case LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY: {
+			nodes[op->GetTableIndex()[1]] = op;
+			break;
+		}
 		default: {
 			break;
 		}
@@ -107,7 +111,17 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
    
     switch (op->type) {
 	case LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY: {
-		ExtractNodes(*op->children[0], filter_operators);
+		// TODO: Transfer Predicate through Group by columns
+		LogicalAggregate &agg = op->Cast<LogicalAggregate>();
+		if (agg.groups.empty() && agg.grouping_sets.size() <= 1) {
+			// optimize children
+			RelationStats child_stats;
+			PredicateTransferOptimizer optimizer(context);
+			op->children[0] = optimizer.Optimize(std::move(op->children[0]), &child_stats);
+			AddNode(op);
+		} else {
+			ExtractNodes(*op->children[0], filter_operators);
+		}
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_WINDOW: {
@@ -130,6 +144,7 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 	}
 	case LogicalOperatorType::LOGICAL_DUMMY_SCAN: {
 		AddNode(op);
+		return;
 	}
 	case LogicalOperatorType::LOGICAL_EXPRESSION_GET: {
 		// base table scan, add to set of relations.
@@ -163,6 +178,7 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 		RelationStats child_stats;
 		PredicateTransferOptimizer optimizer(context);
 		op->children[0] = optimizer.Optimize(std::move(op->children[0]), &child_stats);
+		op->children[1] = optimizer.Optimize(std::move(op->children[1]), &child_stats);
 		AddNode(op);
 		return;
 	}
