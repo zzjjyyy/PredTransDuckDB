@@ -146,7 +146,7 @@ struct DAGNodeCompare {
     }
 };
 
-void DAGManager::LargestFirst(vector<LogicalOperator*> &sorted_nodes) {
+void DAGManager::LargestRoot(vector<LogicalOperator*> &sorted_nodes) {
     std::priority_queue<DAGNode*, vector<DAGNode*>, DAGNodeCompare> list;
     unordered_set<idx_t> met;
     // Create Vertices
@@ -177,7 +177,31 @@ void DAGManager::LargestFirst(vector<LogicalOperator*> &sorted_nodes) {
     }
 }
 
-void DAGManager::RandomFirst(vector<LogicalOperator*> &sorted_nodes) {
+void DAGManager::Small2Large(vector<LogicalOperator*> &sorted_nodes) {
+    // Create Vertices
+    for(auto &vertex : nodes_manager.getNodes()) {
+        // Set the last operator as root
+        if(vertex.second == sorted_nodes.back()) {
+            auto node = make_uniq<DAGNode>(vertex.first, vertex.second->estimated_cardinality, true);
+            node->priority = sorted_nodes.size() - 1;
+            nodes.nodes[vertex.first] = std::move(node);
+        } else {
+            auto node = make_uniq<DAGNode>(vertex.first, vertex.second->estimated_cardinality, false);
+            for (int i = 0; i < sorted_nodes.size(); i++) {
+                if (sorted_nodes[i] == vertex.second) {
+                    node->priority = i;
+                    break;
+                }
+            }
+            nodes.nodes[vertex.first]= std::move(node);
+        }
+    }
+    for(auto &vertex : sorted_nodes) {
+        ExecOrder.emplace_back(vertex);
+    }
+}
+
+void DAGManager::RandomRoot(vector<LogicalOperator*> &sorted_nodes) {
     std::priority_queue<DAGNode*, vector<DAGNode*>, DAGNodeCompare> list;
     unordered_set<idx_t> met;
     std::uniform_int_distribution<int> dist_1(0, nodes_manager.NumNodes() - 1);
@@ -213,8 +237,9 @@ void DAGManager::RandomFirst(vector<LogicalOperator*> &sorted_nodes) {
 
 void DAGManager::CreateDAG() {
     auto &sorted_nodes = nodes_manager.getSortedNodes();
-    LargestFirst(sorted_nodes);
-    // RandomFirst(sorted_nodes);
+    LargestRoot(sorted_nodes);
+    // Small2Large(sorted_nodes);
+    // RandomRoot(sorted_nodes);
     for (auto &filter_and_binding : filters_and_bindings_) {
         if(filter_and_binding) {
             idx_t large;

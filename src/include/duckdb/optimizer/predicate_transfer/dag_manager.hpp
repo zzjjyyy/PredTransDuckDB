@@ -54,8 +54,9 @@ private:
     void ExtractEdges(LogicalOperator &op,
                       vector<reference<LogicalOperator>> &filter_operators);
     
-    void LargestFirst(vector<LogicalOperator*> &sorted_nodes);
-    void RandomFirst(vector<LogicalOperator*> &sorted_nodes);
+    void LargestRoot(vector<LogicalOperator*> &sorted_nodes);
+    void Small2Large(vector<LogicalOperator*> &sorted_nodes);
+    void RandomRoot(vector<LogicalOperator*> &sorted_nodes);
 
     void CreateDAG();
 
