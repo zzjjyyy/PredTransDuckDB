@@ -36,37 +36,12 @@ LogicalGet& PredicateTransferOptimizer::LogicalGetinFilter(LogicalOperator &op) 
 	}
 }
 
-/* For PredSingleTransfer */
-/*
-unique_ptr<LogicalOperator> PredicateTransferOptimizer::Optimize(unique_ptr<LogicalOperator> plan,
-                                                                 optional_ptr<RelationStats> stats) {
-    bool success = dag_manager.Build(*plan); 
-	if(!success) {
-		return plan;
-	}
-    auto &sorted_nodes = dag_manager.getSortedOrder();
-	// Forward
-	for(auto i = 0; i < sorted_nodes.size(); i++) {
-        auto current_node = sorted_nodes[i];
-		// We do predicate transfer in the function CreateBloomFilter
-		// query_graph_manager holds the input bloom filter
-		// return current BF and neighbor BF
-		auto BFvec = CreateBloomFilter(*current_node, false);
-		for (auto &BF : BFvec) {
-			// Add the Bloom Filter to its corresponding edge
-			// Need to check whether the Bloom Filter needs to transfer
-			// Such as, the column not involved in the predicate
-			dag_manager.Add(BF.first, BF.second, false);
-		}
-	}
-	auto result = InsertCreateBFOperator(std::move(plan));
-	return result;
-}
-*/
-
 /* For PredTransfer */
+/* Here is the entry of PredicateTransferOptimizer */
+/* Given a query plan, we insert CreateBF and UseBF into it */
 unique_ptr<LogicalOperator> PredicateTransferOptimizer::Optimize(unique_ptr<LogicalOperator> plan,
                                                                  optional_ptr<RelationStats> stats) {
+	/* Build the DAG to decide the transfer order */
 	bool success = dag_manager.Build(*plan); 
 	if(!success) {
 		return plan;
@@ -77,7 +52,7 @@ unique_ptr<LogicalOperator> PredicateTransferOptimizer::Optimize(unique_ptr<Logi
         auto current_node = ordered_nodes[i];
 		// We do predicate transfer in the function CreateBloomFilter
 		// query_graph_manager holds the input bloom filter
-		// return current BF and neighbor BF
+		// return BF and its corresponding table id
 		auto BFvec = CreateBloomFilter(*current_node, false);
 		for (auto &BF : BFvec) {
 			// Add the Bloom Filter to its corresponding edge
@@ -105,6 +80,7 @@ unique_ptr<LogicalOperator> PredicateTransferOptimizer::Optimize(unique_ptr<Logi
 	return result;
 }
 
+/* which column(s) involved in this expression */
 void PredicateTransferOptimizer::GetColumnBindingExpression(Expression &expr, vector<BoundColumnRefExpression*> &expressions) {
 	if (expr.type == ExpressionType::BOUND_COLUMN_REF) {
 		Expression* expr_ptr = &expr;
@@ -116,7 +92,7 @@ void PredicateTransferOptimizer::GetColumnBindingExpression(Expression &expr, ve
 	}
 }
 
-/* Further to do, test filter operator */
+/* Create Bloom filter and use existing Bloom filter for the given scan or filter node */
 vector<pair<idx_t, shared_ptr<BlockedBloomFilter>>> PredicateTransferOptimizer::CreateBloomFilter(LogicalOperator &node, bool reverse) {
 	vector<pair<idx_t, shared_ptr<BlockedBloomFilter>>> result;
 	idx_t cur = GetNodeId(node);
@@ -330,6 +306,7 @@ PredicateTransferOptimizer::BuildCreateUsePair(LogicalOperator &node,
 	return create_bf;
 }
 
+/* Insert CreateBF into the plan */
 unique_ptr<LogicalOperator> PredicateTransferOptimizer::InsertCreateBFOperator(unique_ptr<LogicalOperator> plan) {
 	for(auto &child : plan->children) {
 		child = InsertCreateBFOperator(std::move(child));
@@ -348,6 +325,7 @@ unique_ptr<LogicalOperator> PredicateTransferOptimizer::InsertCreateBFOperator(u
 	}
 }
 
+/* Only for microbenchmark */
 unique_ptr<LogicalOperator> PredicateTransferOptimizer::InsertCreateBFOperator_d(unique_ptr<LogicalOperator> plan) {
 	for(auto &child : plan->children) {
 		child = InsertCreateBFOperator_d(std::move(child));
@@ -382,6 +360,7 @@ unique_ptr<LogicalOperator> PredicateTransferOptimizer::InsertCreateBFOperator_d
 	return plan;
 }
 
+/* Will this node be filtered? */
 bool PredicateTransferOptimizer::PossibleFilterAny(LogicalOperator &node, bool reverse) {
 	if(!reverse) {
 		if (node.type == LogicalOperatorType::LOGICAL_GET) {
@@ -407,6 +386,7 @@ bool PredicateTransferOptimizer::PossibleFilterAny(LogicalOperator &node, bool r
 	return true;
 }
 
+/* Only for microbenchmark */
 unique_ptr<LogicalOperator> PredicateTransferOptimizer::InsertCreateTable(unique_ptr<LogicalOperator> plan, LogicalOperator* plan_ptr) {
 	if(plan_ptr->type != LogicalOperatorType::LOGICAL_GET && plan_ptr->type != LogicalOperatorType::LOGICAL_FILTER) {
 		return plan;
