@@ -7,8 +7,11 @@
 #include <queue>
 
 namespace duckdb {
+
+/* Build DAG according to the query plan */
 bool DAGManager::Build(LogicalOperator &plan) {
     vector<reference<LogicalOperator>> filter_operators;
+    /* Extract All the vertex nodes */
     nodes_manager.ExtractNodes(plan, filter_operators);
     auto& nodes = nodes_manager.getNodes();
     if(nodes_manager.NumNodes() < 2) {
@@ -50,6 +53,7 @@ void DAGManager::Add(idx_t create_table, shared_ptr<BlockedBloomFilter> use_bf, 
     }
 }
 
+// extract the edges of the hypergraph, creating a list of filters and their associated bindings.
 void DAGManager::ExtractEdges(LogicalOperator &op,
                               vector<reference<LogicalOperator>> &filter_operators) {
     auto &sorted_nodes = nodes_manager.getSortedNodes();

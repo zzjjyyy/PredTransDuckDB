@@ -88,6 +88,7 @@ static bool OperatorNeedsRelation(LogicalOperatorType op_type) {
 	}
 }
 
+/* Extract All the vertex nodes */
 void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalOperator>> &filter_operators) {
     LogicalOperator *op = &plan;
 	vector<reference<LogicalOperator>> datasource_filters;
@@ -194,12 +195,11 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_PROJECTION: {
-		/*
 		RelationStats child_stats;
 		PredicateTransferOptimizer optimizer(context);
 		op->children[0] = optimizer.Optimize(std::move(op->children[0]), &child_stats);
 		AddNode(op);
-		*/
+		/*
 		for (int i = 0; i < op->expressions.size(); i++) {
 			auto &expr = op->expressions[i];
 			if (expr->type == ExpressionType::BOUND_COLUMN_REF) {
@@ -208,6 +208,7 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 			}
 		}
 		ExtractNodes(*op->children[0], filter_operators);
+		*/
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_EMPTY_RESULT: {
