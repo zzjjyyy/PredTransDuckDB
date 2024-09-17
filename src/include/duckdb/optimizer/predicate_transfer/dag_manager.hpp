@@ -36,8 +36,9 @@ public:
 
     vector<LogicalOperator*>& getExecOrder();
 
-    void Add(idx_t create_table, shared_ptr<HashFilter> use_bf, bool reverse);
-    // void Add(idx_t create_table, shared_ptr<BlockedBloomFilter> use_bf, bool reverse);
+    /* Hash Filter or Bloom Filter */
+    // void Add(idx_t create_table, shared_ptr<HashFilter> use_bf, bool reverse);
+    void Add(idx_t create_table, shared_ptr<BlockedBloomFilter> use_bf, bool reverse);
 
     NodesManager nodes_manager;
 

@@ -31,30 +31,30 @@ private:
 private:
     void GetColumnBindingExpression(Expression &expr, vector<BoundColumnRefExpression*> &expressions);
 
+    /* Hash Filter or Bloom Filter */
+    // vector<pair<idx_t, shared_ptr<HashFilter>>> CreateBloomFilter(LogicalOperator &node, bool reverse);
     vector<pair<idx_t, shared_ptr<BlockedBloomFilter>>> CreateBloomFilter(LogicalOperator &node, bool reverse);
 
     idx_t GetNodeId(LogicalOperator &node);
 
+    /* Hash Filter or Bloom Filter */
+    // void GetAllBFUsed(idx_t cur, vector<shared_ptr<HashFilter>> &temp_result_to_use, vector<idx_t> &depend_nodes, bool reverse);
     void GetAllBFUsed(idx_t cur, vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_use, vector<idx_t> &depend_nodes, bool reverse);
 
+    /* Hash Filter or Bloom Filter */
+    // void GetAllBFCreate(idx_t cur, vector<shared_ptr<HashFilter>> &temp_result_to_create, bool reverse);
     void GetAllBFCreate(idx_t cur, vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_create, bool reverse);
 
-    unique_ptr<LogicalCreateBF>
-    BuildSingleCreateOperator(LogicalOperator &node,
-							  vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_create);
+    /* Hash Filter or Bloom Filter */
+    // unique_ptr<LogicalCreateBF> BuildSingleCreateOperator(LogicalOperator &node, vector<shared_ptr<HashFilter>> &temp_result_to_create);
+    unique_ptr<LogicalCreateBF> BuildSingleCreateOperator(LogicalOperator &node, vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_create);
 
-    unique_ptr<LogicalUseBF>
-    BuildUseOperator(LogicalOperator &node,
-					 vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_use,
-                     vector<idx_t> &depend_nodes,
-					 bool reverse);
+    /* Hash Filter or Bloom Filter */
+    // unique_ptr<LogicalUseBF> BuildUseOperator(LogicalOperator &node, vector<shared_ptr<HashFilter>> &temp_result_to_use, vector<idx_t> &depend_nodes, bool reverse);
+    unique_ptr<LogicalUseBF> BuildUseOperator(LogicalOperator &node, vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_use, vector<idx_t> &depend_nodes, bool reverse);
 
-    unique_ptr<LogicalCreateBF>
-    BuildCreateUsePair(LogicalOperator &node,
-                       vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_use,
-					   vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_create,
-                       vector<idx_t> &depend_nodes,
-					   bool reverse);
+    // unique_ptr<LogicalCreateBF> BuildCreateUsePair(LogicalOperator &node, vector<shared_ptr<HashFilter>> &temp_result_to_use, vector<shared_ptr<HashFilter>> &temp_result_to_create, vector<idx_t> &depend_nodes, bool reverse);
+    unique_ptr<LogicalCreateBF> BuildCreateUsePair(LogicalOperator &node, vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_use, vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_create, vector<idx_t> &depend_nodes, bool reverse);
 
     bool PossibleFilterAny(LogicalOperator &node, bool reverse);
 

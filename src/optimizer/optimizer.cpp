@@ -145,8 +145,8 @@ unique_ptr<LogicalOperator> Optimizer::Optimize(unique_ptr<LogicalOperator> plan
 	// then we perform the predicate transfer optimization
 	// start = std::chrono::high_resolution_clock::now();
 	RunOptimizer(OptimizerType::PREDICATE_TRANSFER, [&]() {
-		PredicateTransferOptimizer optimizer(context);
-		plan = optimizer.Optimize(std::move(plan));
+	 	PredicateTransferOptimizer optimizer(context);
+	 	plan = optimizer.Optimize(std::move(plan));
 	});
 
     /*

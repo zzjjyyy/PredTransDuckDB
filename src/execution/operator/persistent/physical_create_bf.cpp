@@ -12,8 +12,9 @@
 #include <thread>
 
 namespace duckdb {
-PhysicalCreateBF::PhysicalCreateBF(vector<LogicalType> types, vector<shared_ptr<HashFilter>> bf, idx_t estimated_cardinality)
-// PhysicalCreateBF::PhysicalCreateBF(vector<LogicalType> types, vector<shared_ptr<BlockedBloomFilter>> bf, idx_t estimated_cardinality)
+/* Hash Filter or Bloom Filter */
+// PhysicalCreateBF::PhysicalCreateBF(vector<LogicalType> types, vector<shared_ptr<HashFilter>> bf, idx_t estimated_cardinality)
+PhysicalCreateBF::PhysicalCreateBF(vector<LogicalType> types, vector<shared_ptr<BlockedBloomFilter>> bf, idx_t estimated_cardinality)
     : PhysicalOperator(PhysicalOperatorType::CREATE_BF, std::move(types), estimated_cardinality), bf_to_create(bf) {
 };
 
@@ -30,8 +31,9 @@ public:
 	mutex glock;
 	const PhysicalCreateBF &op;
 	ColumnDataCollection total_data;
-	vector<shared_ptr<HashFilterBuilder>> builders;
-	// vector<shared_ptr<BloomFilterBuilder>> builders;
+	/* Hash Filter or Bloom Filter */
+	// vector<shared_ptr<HashFilterBuilder>> builders;
+	vector<shared_ptr<BloomFilterBuilder>> builders;
 	vector<unique_ptr<ColumnDataCollection>> local_data_collections;
 };
 
@@ -99,31 +101,31 @@ public:
 			for(auto &builder : sink.builders) {
 				auto cols = builder->BuiltCols();
 				/* Start of Hash Filter */
-				DataChunk input;
-				input.SetCardinality(chunk.size());
-				for(int i = 0; i < cols.size(); i++) {
-					Vector v = chunk.data[cols[i]];
-					input.data.emplace_back(v);
-				}
-				builder->PushNextBatch(thread_id, chunk.size(), input);
+				// DataChunk input;
+				// input.SetCardinality(chunk.size());
+				// for(int i = 0; i < cols.size(); i++) {
+				//    Vector v = chunk.data[cols[i]];
+				//	  input.data.emplace_back(v);
+				// }
+				// builder->PushNextBatch(thread_id, chunk.size(), input);
 				/* End of Hash Filter */
 				/* Start of Bloom Filter */
-				// Vector hashes(LogicalType::HASH);
-				// VectorOperations::Hash(chunk.data[cols[0]], hashes, chunk.size());
-				// for(int i = 1; i < cols.size(); i++) {
-				// 	  VectorOperations::CombineHash(hashes, chunk.data[cols[i]], chunk.size());
-				// }
-				// builder->PushNextBatch(thread_id, chunk.size(), (hash_t*)hashes.GetData());
+				Vector hashes(LogicalType::HASH);
+				VectorOperations::Hash(chunk.data[cols[0]], hashes, chunk.size());
+				for(int i = 1; i < cols.size(); i++) {
+					VectorOperations::CombineHash(hashes, chunk.data[cols[i]], chunk.size());
+				}
+				builder->PushNextBatch(thread_id, chunk.size(), (hash_t*)hashes.GetData());
 				/* End of Bloom Filter */
 			}
 		}
 		/* Start of Hash Filter */
-		for (auto &builder : sink.builders) {
-			builder->build_target_->hash_table->Unpartition();
-			builder->build_target_->hash_table->InitializePointerTable();
-			const auto chunk_count = builder->build_target_->hash_table->GetDataCollection().ChunkCount();
-			builder->build_target_->hash_table->Finalize(0, chunk_count, false);
-		}
+		// for (auto &builder : sink.builders) {
+		//	   builder->build_target_->hash_table->Unpartition();
+		//	   builder->build_target_->hash_table->InitializePointerTable();
+		//	   const auto chunk_count = builder->build_target_->hash_table->GetDataCollection().ChunkCount();
+		//	   builder->build_target_->hash_table->Finalize(0, chunk_count, false);
+		// }
 		/* End of Hash Filter */
 		event->FinishTask();
 		tcontext.profiler.EndOperator(nullptr);
@@ -209,32 +211,32 @@ SinkFinalizeType PhysicalCreateBF::Finalize(Pipeline &pipeline, Event &event, Cl
 	for (auto &filter : bf_to_create) {
 		if (num_threads == 1) {
 			/* Start of Hash Filter */
-			auto builder = make_shared<HashFilterBuilder_SingleThreaded>();
-			auto cols = filter->BoundColsBuilt;
-			vector<LogicalType> layouts;
-			for(int i = 0; i < cols.size(); i++) {
-				layouts.emplace_back(sink.total_data.Types()[cols[i]]);
-			}
-			builder->Begin(1, arrow::internal::CpuInfo::AVX2, &BufferManager::GetBufferManager(context), layouts, 0, filter.get());
+			// auto builder = make_shared<HashFilterBuilder_SingleThreaded>();
+			// auto cols = filter->BoundColsBuilt;
+			// vector<LogicalType> layouts;
+			// for(int i = 0; i < cols.size(); i++) {
+			// 	layouts.emplace_back(sink.total_data.Types()[cols[i]]);
+			// }
+			// builder->Begin(1, arrow::internal::CpuInfo::AVX2, &BufferManager::GetBufferManager(context), layouts, 0, filter.get());
 			/* End of Hash Filter */
 			/* Start of Bloom Filter */
-			// auto builder = make_shared<BloomFilterBuilder_SingleThreaded>();
-			// builder->Begin(1, arrow::internal::CpuInfo::AVX2, arrow::default_memory_pool(), num_rows, 0, filter.get());
+			auto builder = make_shared<BloomFilterBuilder_SingleThreaded>();
+			builder->Begin(1, arrow::internal::CpuInfo::AVX2, arrow::default_memory_pool(), num_rows, 0, filter.get());
 			/* End of Bloom Filter */
 			sink.builders.emplace_back(builder);
 		} else {
 			/* Start of Hash Filter */
-			auto builder = make_shared<HashFilterBuilder_Parallel>();
-			auto cols = filter->BoundColsBuilt;
-			vector<LogicalType> layouts;
-			for(int i = 0; i < cols.size(); i++) {
-				layouts.emplace_back(sink.total_data.Types()[cols[i]]);
-			}
-			builder->Begin(num_threads, arrow::internal::CpuInfo::AVX2, &BufferManager::GetBufferManager(context), layouts, 0, filter.get());
+			// auto builder = make_shared<HashFilterBuilder_Parallel>();
+			// auto cols = filter->BoundColsBuilt;
+			// vector<LogicalType> layouts;
+			// for(int i = 0; i < cols.size(); i++) {
+			// 	layouts.emplace_back(sink.total_data.Types()[cols[i]]);
+			// }
+			// builder->Begin(num_threads, arrow::internal::CpuInfo::AVX2, &BufferManager::GetBufferManager(context), layouts, 0, filter.get());
 			/* End of Hash Filter */
 			/* Start of Bloom Filter */
-			// auto builder = make_shared<BloomFilterBuilder_Parallel>();
-			// builder->Begin(num_threads, arrow::internal::CpuInfo::AVX2, arrow::default_memory_pool(), num_rows, 0, filter.get());
+			auto builder = make_shared<BloomFilterBuilder_Parallel>();
+			builder->Begin(num_threads, arrow::internal::CpuInfo::AVX2, arrow::default_memory_pool(), num_rows, 0, filter.get());
 			/* End of Bloom Filter */
 			sink.builders.emplace_back(builder);
 		}

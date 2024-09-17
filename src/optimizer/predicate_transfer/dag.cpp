@@ -26,8 +26,9 @@ namespace duckdb {
         return;
     }
 
-    // void DAGNode::AddIn(idx_t from, shared_ptr<BlockedBloomFilter> bloom_filter, bool forward) {
-    void DAGNode::AddIn(idx_t from, shared_ptr<HashFilter> bloom_filter, bool forward) {
+    /* Hash Filter or Bloom Filter */
+    void DAGNode::AddIn(idx_t from, shared_ptr<BlockedBloomFilter> bloom_filter, bool forward) {
+    // void DAGNode::AddIn(idx_t from, shared_ptr<HashFilter> bloom_filter, bool forward) {
         if(forward) {
             for (auto &node : forward_in_) {
                 if(node->GetDest() == from) {
@@ -77,8 +78,9 @@ namespace duckdb {
         return;
     }
 
-    // void DAGNode::AddOut(idx_t to, shared_ptr<BlockedBloomFilter> bloom_filter, bool forward) {
-    void DAGNode::AddOut(idx_t to, shared_ptr<HashFilter> bloom_filter, bool forward) {
+    /* Hash Filter or Bloom Filter */
+    void DAGNode::AddOut(idx_t to, shared_ptr<BlockedBloomFilter> bloom_filter, bool forward) {
+    // void DAGNode::AddOut(idx_t to, shared_ptr<HashFilter> bloom_filter, bool forward) {
         if(forward) {
             for (auto &node : forward_out_) {
                 if(node->GetDest() == to) {

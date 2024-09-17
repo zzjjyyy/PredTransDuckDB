@@ -11,11 +11,12 @@ public:
 	static constexpr const PhysicalOperatorType TYPE = PhysicalOperatorType::USE_BF;
 
 public:
-	PhysicalUseBF(vector<LogicalType> types, vector<shared_ptr<HashFilter>> bf, idx_t estimated_cardinality);
-    // PhysicalUseBF(vector<LogicalType> types, vector<shared_ptr<BlockedBloomFilter>> bf, idx_t estimated_cardinality);
+	/* Hash Filter or Bloom Filter */
+	// PhysicalUseBF(vector<LogicalType> types, vector<shared_ptr<HashFilter>> bf, idx_t estimated_cardinality);
+    PhysicalUseBF(vector<LogicalType> types, vector<shared_ptr<BlockedBloomFilter>> bf, idx_t estimated_cardinality);
 
-	vector<shared_ptr<HashFilter>> bf_to_use;
-    // vector<shared_ptr<BlockedBloomFilter>> bf_to_use;
+	// vector<shared_ptr<HashFilter>> bf_to_use;
+    vector<shared_ptr<BlockedBloomFilter>> bf_to_use;
 
 	vector<PhysicalCreateBF *> related_create_bf;
 
