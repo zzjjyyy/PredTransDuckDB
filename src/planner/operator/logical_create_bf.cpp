@@ -1,7 +1,8 @@
 #include "duckdb/planner/operator/logical_create_bf.hpp"
 
 namespace duckdb {
-LogicalCreateBF::LogicalCreateBF(vector<shared_ptr<BlockedBloomFilter>> bf)
+// LogicalCreateBF::LogicalCreateBF(vector<shared_ptr<BlockedBloomFilter>> bf)
+LogicalCreateBF::LogicalCreateBF(vector<shared_ptr<HashFilter>> bf)
     : LogicalOperator(LogicalOperatorType::LOGICAL_CREATE_BF), bf_to_create(bf) {};
 
 void LogicalCreateBF::Serialize(Serializer &serializer) const {

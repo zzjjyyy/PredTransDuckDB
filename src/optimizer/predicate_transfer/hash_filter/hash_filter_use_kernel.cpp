@@ -4,7 +4,7 @@
 
 namespace duckdb {
 
-void HashFilterUseKernel::filter(const vector<Vector> &result,
+void HashFilterUseKernel::filter(vector<Vector> &input,
             shared_ptr<HashFilter> hash_filter,
             SelectionVector &sel,
             idx_t &approved_tuple_count,
@@ -14,9 +14,13 @@ void HashFilterUseKernel::filter(const vector<Vector> &result,
         return;
     }
     idx_t result_count = 0;
-    auto& temp = const_cast<Vector &>(result[hash_filter->BoundColsApplied[0]]);
-    temp.Flatten(row_num);
-    hash_filter->Find(arrow::internal::CpuInfo::AVX2, row_num, reinterpret_cast<int32_t *>(temp.GetData()), sel, result_count, false);
+    DataChunk chunk;
+    chunk.SetCardinality(row_num);
+    for(int i = 0; i < input.size(); i++) {
+        Vector v = input[i];
+        chunk.data.emplace_back(v);
+    }
+    hash_filter->Find(arrow::internal::CpuInfo::AVX2, row_num, chunk, sel, result_count, false);
 
     approved_tuple_count = result_count;
     return;

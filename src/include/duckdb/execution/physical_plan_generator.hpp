@@ -17,9 +17,9 @@
 #include "duckdb/catalog/dependency_list.hpp"
 #include "duckdb/common/unordered_map.hpp"
 #include "duckdb/common/unordered_set.hpp"
-#include "duckdb/execution/operator/persistent/physical_create_bf.hpp"
 
 namespace duckdb {
+class PhysicalCreateBF;
 class ClientContext;
 class ColumnDataCollection;
 

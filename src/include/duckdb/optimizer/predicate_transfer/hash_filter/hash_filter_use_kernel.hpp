@@ -12,7 +12,7 @@ class HashFilterUseKernel {
 public:
   // use hash filter (reuse column indices made by the caller)
   static void
-  filter(const vector<Vector> &result,
+  filter(vector<Vector> &input,
          shared_ptr<HashFilter> bloom_filter,
          SelectionVector &sel,
          idx_t &approved_tuple_count,

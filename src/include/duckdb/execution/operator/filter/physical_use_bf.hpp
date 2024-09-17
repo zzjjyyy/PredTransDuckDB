@@ -3,6 +3,7 @@
 #include "duckdb/execution/physical_operator.hpp"
 #include "duckdb/execution/operator/persistent/physical_create_bf.hpp"
 #include "duckdb/optimizer/predicate_transfer/bloom_filter/bloom_filter.hpp"
+#include "duckdb/optimizer/predicate_transfer/hash_filter/hash_filter.hpp"
 
 namespace duckdb {
 class PhysicalUseBF : public CachingPhysicalOperator {
@@ -10,9 +11,11 @@ public:
 	static constexpr const PhysicalOperatorType TYPE = PhysicalOperatorType::USE_BF;
 
 public:
-    PhysicalUseBF(vector<LogicalType> types, vector<shared_ptr<BlockedBloomFilter>> bf, idx_t estimated_cardinality);
+	PhysicalUseBF(vector<LogicalType> types, vector<shared_ptr<HashFilter>> bf, idx_t estimated_cardinality);
+    // PhysicalUseBF(vector<LogicalType> types, vector<shared_ptr<BlockedBloomFilter>> bf, idx_t estimated_cardinality);
 
-    vector<shared_ptr<BlockedBloomFilter>> bf_to_use;
+	vector<shared_ptr<HashFilter>> bf_to_use;
+    // vector<shared_ptr<BlockedBloomFilter>> bf_to_use;
 
 	vector<PhysicalCreateBF *> related_create_bf;
 

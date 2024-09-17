@@ -1,4 +1,5 @@
 add_subdirectory(bloom_filter)
+add_subdirectory(hash_filter)
 
 add_library_unity(
   duckdb_predicate_transfer

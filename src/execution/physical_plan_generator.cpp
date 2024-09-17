@@ -9,6 +9,7 @@
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 #include "duckdb/planner/operator/logical_extension_operator.hpp"
 #include "duckdb/planner/operator/list.hpp"
+#include "duckdb/execution/operator/persistent/physical_create_bf.hpp"
 
 namespace duckdb {
 

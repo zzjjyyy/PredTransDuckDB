@@ -1,11 +1,13 @@
 #include "duckdb/execution/operator/filter/physical_use_bf.hpp"
 #include "duckdb/parallel/thread_context.hpp"
-#include "duckdb/optimizer/predicate_transfer/bloom_filter/bloom_filter_use_kernel.hpp"
+#include "duckdb/optimizer/predicate_transfer/hash_filter/hash_filter_use_kernel.hpp"
+// #include "duckdb/optimizer/predicate_transfer/bloom_filter/bloom_filter_use_kernel.hpp"
 #include "duckdb/parallel/meta_pipeline.hpp"
 #include "duckdb/parallel/pipeline.hpp"
 
 namespace duckdb {
-PhysicalUseBF::PhysicalUseBF(vector<LogicalType> types, vector<shared_ptr<BlockedBloomFilter>> bf, idx_t estimated_cardinality)
+PhysicalUseBF::PhysicalUseBF(vector<LogicalType> types, vector<shared_ptr<HashFilter>> bf, idx_t estimated_cardinality)
+// PhysicalUseBF::PhysicalUseBF(vector<LogicalType> types, vector<shared_ptr<BlockedBloomFilter>> bf, idx_t estimated_cardinality)
     : CachingPhysicalOperator(PhysicalOperatorType::USE_BF, std::move(types), estimated_cardinality), bf_to_use(bf) {}
     
 unique_ptr<OperatorState> PhysicalUseBF::GetOperatorState(ExecutionContext &context) const {
@@ -19,14 +21,14 @@ OperatorResultType PhysicalUseBF::ExecuteInternal(ExecutionContext &context, Dat
     idx_t result_count = input.size();
 	SelectionVector sel(STANDARD_VECTOR_SIZE);
 	auto bf = bf_to_use[0];
-	BloomFilterUseKernel::filter(input.data, bf, sel, result_count, row_num);
+	HashFilterUseKernel::filter(input.data, bf, sel, result_count, row_num);
+	// BloomFilterUseKernel::filter(input.data, bf, sel, result_count, row_num);
 	if (result_count == row_num) {
 		// nothing was filtered: skip adding any selection vectors
 		chunk.Reference(input);
 	} else {
 		chunk.Slice(input, sel, result_count);
 	}
-	
 	return OperatorResultType::NEED_MORE_INPUT;
 }
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "duckdb/execution/physical_operator.hpp"
+#include "duckdb/optimizer/predicate_transfer/hash_filter/hash_filter.hpp"
 #include "duckdb/optimizer/predicate_transfer/bloom_filter/bloom_filter.hpp"
 
 namespace duckdb {
@@ -9,9 +10,11 @@ public:
 	static constexpr const PhysicalOperatorType TYPE = PhysicalOperatorType::CREATE_BF;
 
 public:
-    PhysicalCreateBF(vector<LogicalType> types, vector<shared_ptr<BlockedBloomFilter>> bf, idx_t estimated_cardinality);
+	PhysicalCreateBF(vector<LogicalType> types, vector<shared_ptr<HashFilter>> bf, idx_t estimated_cardinality);
+    // PhysicalCreateBF(vector<LogicalType> types, vector<shared_ptr<BlockedBloomFilter>> bf, idx_t estimated_cardinality);
 
-    vector<shared_ptr<BlockedBloomFilter>> bf_to_create;
+	vector<shared_ptr<HashFilter>> bf_to_create;
+    // vector<shared_ptr<BlockedBloomFilter>> bf_to_create;
 
 	shared_ptr<Pipeline> this_pipeline;
 
