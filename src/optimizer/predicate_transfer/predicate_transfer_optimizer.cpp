@@ -374,7 +374,7 @@ unique_ptr<LogicalOperator> PredicateTransferOptimizer::InsertCreateBFOperator_d
 
 /* Will this node be filtered? */
 bool PredicateTransferOptimizer::PossibleFilterAny(LogicalOperator &node, bool reverse) {
-	return true;
+	// return true;
 	if(!reverse) {
 		if (node.type == LogicalOperatorType::LOGICAL_GET) {
 			auto& get = node.Cast<LogicalGet>();
