@@ -93,27 +93,26 @@ void PredicateTransferOptimizer::GetColumnBindingExpression(Expression &expr, ve
 }
 
 /* Create Bloom filter and use existing Bloom filter for the given scan or filter node */
-/* Hash Filter or Bloom Filter */
+#ifdef UseHashFilter
+vector<pair<idx_t, shared_ptr<HashFilter>>> PredicateTransferOptimizer::CreateBloomFilter(LogicalOperator &node, bool reverse) {
+	vector<pair<idx_t, shared_ptr<HashFilter>>> result;
+	vector<shared_ptr<HashFilter>> temp_result_to_use;
+	vector<shared_ptr<HashFilter>> temp_result_to_create;
+#else
 vector<pair<idx_t, shared_ptr<BlockedBloomFilter>>> PredicateTransferOptimizer::CreateBloomFilter(LogicalOperator &node, bool reverse) {
-// vector<pair<idx_t, shared_ptr<HashFilter>>> PredicateTransferOptimizer::CreateBloomFilter(LogicalOperator &node, bool reverse) {
-	/* Hash Filter or Bloom Filter */
-	// vector<pair<idx_t, shared_ptr<HashFilter>>> result;
 	vector<pair<idx_t, shared_ptr<BlockedBloomFilter>>> result;
+	vector<shared_ptr<BlockedBloomFilter>> temp_result_to_use;
+	vector<shared_ptr<BlockedBloomFilter>> temp_result_to_create;
+#endif
 	idx_t cur = GetNodeId(node);
 	if(dag_manager.nodes.nodes.find(cur) == dag_manager.nodes.nodes.end()) {
 		return result;
 	}
 	// Use Bloom Filter
-	/* Hash Filter or Bloom Filter */
-	// vector<shared_ptr<HashFilter>> temp_result_to_use;
-	vector<shared_ptr<BlockedBloomFilter>> temp_result_to_use;
 	vector<idx_t> depend_nodes;
 	GetAllBFUsed(cur, temp_result_to_use, depend_nodes, reverse);
 	
 	// Create Bloom Filter
-	/* Hash Filter or Bloom Filter */
-	// vector<shared_ptr<HashFilter>> temp_result_to_create;
-	vector<shared_ptr<BlockedBloomFilter>> temp_result_to_create;
 	GetAllBFCreate(cur, temp_result_to_create, reverse);
 	
 	if(temp_result_to_use.size() == 0) {
@@ -186,9 +185,11 @@ idx_t PredicateTransferOptimizer::GetNodeId(LogicalOperator &node) {
 	return res;
 }
 
-/* Hash Filter or Bloom Filter */
-// void PredicateTransferOptimizer::GetAllBFUsed(idx_t cur, vector<shared_ptr<HashFilter>> &temp_result_to_use, vector<idx_t> &depend_nodes, bool reverse) {
+#ifdef UseHashFilter
+void PredicateTransferOptimizer::GetAllBFUsed(idx_t cur, vector<shared_ptr<HashFilter>> &temp_result_to_use, vector<idx_t> &depend_nodes, bool reverse) {
+#else
 void PredicateTransferOptimizer::GetAllBFUsed(idx_t cur, vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_use, vector<idx_t> &depend_nodes, bool reverse) {
+#endif
 	if(!reverse) {
 		for(auto &edge : dag_manager.nodes.nodes[cur]->forward_in_) {
 			for(auto bloom_filter : edge->bloom_filters) {
@@ -213,14 +214,18 @@ void PredicateTransferOptimizer::GetAllBFUsed(idx_t cur, vector<shared_ptr<Block
 	}
 }
 
-/* Hash Filter or Bloom Filter */
+#ifdef UseHashFilter
+void PredicateTransferOptimizer::GetAllBFCreate(idx_t cur, vector<shared_ptr<HashFilter>> &temp_result_to_create, bool reverse) {
+#else
 void PredicateTransferOptimizer::GetAllBFCreate(idx_t cur, vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_create, bool reverse) {
-// void PredicateTransferOptimizer::GetAllBFCreate(idx_t cur, vector<shared_ptr<HashFilter>> &temp_result_to_create, bool reverse) {
+#endif
 	if (!reverse) {
 		for(auto &edge : dag_manager.nodes.nodes[cur]->forward_out_) {
-			/* Hash Filter or Bloom Filter */
-			// auto cur_filter = make_shared<HashFilter>();
+#ifdef UseHashFilter
+			auto cur_filter = make_shared<HashFilter>();
+#else
 			auto cur_filter = make_shared<BlockedBloomFilter>();
+#endif
 			// Each Expression leads to a bloom filter on a column on this table
 			for (auto &expr : edge->filters) {
 				vector<BoundColumnRefExpression*> expressions;
@@ -237,9 +242,11 @@ void PredicateTransferOptimizer::GetAllBFCreate(idx_t cur, vector<shared_ptr<Blo
 		}
 	} else {
 		for(auto &edge : dag_manager.nodes.nodes[cur]->backward_out_) {
-			/* Hash Filter or Bloom Filter */
-			// auto cur_filter = make_shared<HashFilter>();
+#ifdef UseHashFilter
+			auto cur_filter = make_shared<HashFilter>();
+#else
 			auto cur_filter = make_shared<BlockedBloomFilter>();
+#endif
 			// Each Expression leads to a bloom filter on a column on this table
 			for (auto &expr : edge->filters) {
 				vector<BoundColumnRefExpression*> expressions;
@@ -258,26 +265,31 @@ void PredicateTransferOptimizer::GetAllBFCreate(idx_t cur, vector<shared_ptr<Blo
 	}
 }
 
-/* Hash Filter or Bloom Filter */
-// unique_ptr<LogicalCreateBF> PredicateTransferOptimizer::BuildSingleCreateOperator(LogicalOperator &node, vector<shared_ptr<HashFilter>> &temp_result_to_create) {
+#ifdef UseHashFilter
+unique_ptr<LogicalCreateBF> PredicateTransferOptimizer::BuildSingleCreateOperator(LogicalOperator &node, vector<shared_ptr<HashFilter>> &temp_result_to_create) {
+#else
 unique_ptr<LogicalCreateBF> PredicateTransferOptimizer::BuildSingleCreateOperator(LogicalOperator &node, vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_create) {
+#endif
 	auto create_bf = make_uniq<LogicalCreateBF>(temp_result_to_create);
 	create_bf->has_estimated_cardinality = true;
 	create_bf->estimated_cardinality = node.estimated_cardinality;
 	return create_bf;
 }
 
-/* Hash Filter or Bloom Filter */
-// unique_ptr<LogicalUseBF> PredicateTransferOptimizer::BuildUseOperator(LogicalOperator &node, vector<shared_ptr<HashFilter>> &temp_result_to_use, vector<idx_t> &depend_nodes, bool reverse)
+#ifdef UseHashFilter
+unique_ptr<LogicalUseBF> PredicateTransferOptimizer::BuildUseOperator(LogicalOperator &node, vector<shared_ptr<HashFilter>> &temp_result_to_use, vector<idx_t> &depend_nodes, bool reverse) {
+#else
 unique_ptr<LogicalUseBF> PredicateTransferOptimizer::BuildUseOperator(LogicalOperator &node, vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_use, vector<idx_t> &depend_nodes, bool reverse) {
-	D_ASSERT(temp_result_to_use.size() == depend_nodes.size());
+#endif
 	unique_ptr<LogicalUseBF> pre_use_bf;
 	unique_ptr<LogicalUseBF> use_bf;
 	// This is important for performance, not use (int i = 0; i < temp_result_to_use.size(); i++)
 	for (int i = temp_result_to_use.size() - 1; i >= 0; i--) {
-		/* Hash Filter or Bloom Filter */
+#ifdef UseHashFilter
+		vector<shared_ptr<HashFilter>> v;
+#else
 		vector<shared_ptr<BlockedBloomFilter>> v;
-		// vector<shared_ptr<HashFilter>> v;
+#endif
 		v.emplace_back(temp_result_to_use[i]);
 		use_bf = make_uniq<LogicalUseBF>(v);
 		use_bf->has_estimated_cardinality = true;
@@ -307,9 +319,11 @@ unique_ptr<LogicalUseBF> PredicateTransferOptimizer::BuildUseOperator(LogicalOpe
 	return pre_use_bf;
 }
 
-/* Hash Filter or Bloom Filter */
-// unique_ptr<LogicalCreateBF> PredicateTransferOptimizer::BuildCreateUsePair(LogicalOperator &node, vector<shared_ptr<HashFilter>> &temp_result_to_use, vector<shared_ptr<HashFilter>> &temp_result_to_create, vector<idx_t> &depend_nodes, bool reverse) {
+#ifdef UseHashFilter
+unique_ptr<LogicalCreateBF> PredicateTransferOptimizer::BuildCreateUsePair(LogicalOperator &node, vector<shared_ptr<HashFilter>> &temp_result_to_use, vector<shared_ptr<HashFilter>> &temp_result_to_create, vector<idx_t> &depend_nodes, bool reverse) {
+#else
 unique_ptr<LogicalCreateBF> PredicateTransferOptimizer::BuildCreateUsePair(LogicalOperator &node, vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_use, vector<shared_ptr<BlockedBloomFilter>> &temp_result_to_create, vector<idx_t> &depend_nodes, bool reverse) {
+#endif
 	auto use_bf = BuildUseOperator(node, temp_result_to_use, depend_nodes, reverse);
 	auto create_bf = make_uniq<LogicalCreateBF>(temp_result_to_create);
 	create_bf->AddChild(unique_ptr_cast<LogicalUseBF, LogicalOperator>(std::move(use_bf)));

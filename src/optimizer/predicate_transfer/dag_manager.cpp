@@ -43,9 +43,11 @@ vector<LogicalOperator*>& DAGManager::getExecOrder() {
     return ExecOrder;
 }
 
-/* Hash Filter or Bloom Filter */
-void DAGManager::Add(idx_t create_table, shared_ptr<BlockedBloomFilter> use_bf, bool reverse) {
-// void DAGManager::Add(idx_t create_table, shared_ptr<HashFilter> use_bf, bool reverse) {
+#ifdef UseHashFilter
+    void DAGManager::Add(idx_t create_table, shared_ptr<HashFilter> use_bf, bool reverse) {
+#else
+    void DAGManager::Add(idx_t create_table, shared_ptr<BlockedBloomFilter> use_bf, bool reverse) {
+#endif
     if (!reverse) {
         auto in = use_bf->GetColApplied()[0].table_index;
         nodes.nodes[in]->AddIn(create_table, use_bf, true);

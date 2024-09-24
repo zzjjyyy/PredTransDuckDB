@@ -16,6 +16,9 @@
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/optimizer/predicate_transfer/hash_filter/hashtable.hpp"
 
+// #define UseHashFilter
+
+#ifdef UseHashFilter
 namespace duckdb {
 class BufferManager;
 
@@ -163,3 +166,4 @@ class ARROW_ACERO_EXPORT HashFilterBuilder_Parallel : public HashFilterBuilder {
   int log_num_prtns_;
 };
 }
+#endif

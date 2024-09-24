@@ -2,6 +2,7 @@
 #include "duckdb/common/types/vector.hpp"
 #include "duckdb/common/vector_operations/vector_operations.hpp"
 
+#ifdef UseHashFilter
 namespace duckdb {
 
 void HashFilterUseKernel::filter(vector<Vector> &input,
@@ -16,8 +17,8 @@ void HashFilterUseKernel::filter(vector<Vector> &input,
     idx_t result_count = 0;
     DataChunk chunk;
     chunk.SetCardinality(row_num);
-    for(int i = 0; i < input.size(); i++) {
-        Vector v = input[i];
+    for(int i = 0; i < hash_filter->BoundColsApplied.size(); i++) {
+        Vector v = input[hash_filter->BoundColsApplied[i]];
         chunk.data.emplace_back(v);
     }
     hash_filter->Find(arrow::internal::CpuInfo::AVX2, row_num, chunk, sel, result_count, false);
@@ -26,3 +27,4 @@ void HashFilterUseKernel::filter(vector<Vector> &input,
     return;
 }
 }
+#endif

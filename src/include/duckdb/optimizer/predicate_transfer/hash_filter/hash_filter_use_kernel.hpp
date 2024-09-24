@@ -3,6 +3,7 @@
 #include "duckdb/optimizer/predicate_transfer/hash_filter/hash_filter.hpp"
 #include "duckdb/common/types/vector.hpp"
 
+#ifdef UseHashFilter
 namespace duckdb {
 /**
  * Caller needs to check if table is empty and bloom filter is valid
@@ -19,3 +20,4 @@ public:
          idx_t row_num);
 };
 }
+#endif

@@ -11,14 +11,18 @@ public:
 	static constexpr const LogicalOperatorType TYPE = LogicalOperatorType::LOGICAL_USE_BF;
 
 public:
-	/* Hash Filter or Bloom Filter */
-	// LogicalUseBF(vector<shared_ptr<HashFilter>> temp_result);
-    LogicalUseBF(vector<shared_ptr<BlockedBloomFilter>> temp_result);
-
-	/* Hash Filter or Bloom Filter */
-	// vector<shared_ptr<HashFilter>> bf_to_use;
-    vector<shared_ptr<BlockedBloomFilter>> bf_to_use;
-
+#ifdef UseHashFilter
+	LogicalUseBF(vector<shared_ptr<HashFilter>> temp_result);
+#else
+	LogicalUseBF(vector<shared_ptr<BlockedBloomFilter>> temp_result);
+#endif
+	
+#ifdef UseHashFilter
+	vector<shared_ptr<HashFilter>> bf_to_use;
+#else
+	vector<shared_ptr<BlockedBloomFilter>> bf_to_use;
+#endif
+	
 	vector<LogicalCreateBF*> related_create_bf;
 
 public:

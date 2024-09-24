@@ -10,12 +10,17 @@ public:
 	static constexpr const PhysicalOperatorType TYPE = PhysicalOperatorType::CREATE_BF;
 
 public:
-	/* Hash Filter or Bloom Filter */
-	// PhysicalCreateBF(vector<LogicalType> types, vector<shared_ptr<HashFilter>> bf, idx_t estimated_cardinality);
-    PhysicalCreateBF(vector<LogicalType> types, vector<shared_ptr<BlockedBloomFilter>> bf, idx_t estimated_cardinality);
+#ifdef UseHashFilter
+	PhysicalCreateBF(vector<LogicalType> types, vector<shared_ptr<HashFilter>> bf, idx_t estimated_cardinality);
+#else
+	PhysicalCreateBF(vector<LogicalType> types, vector<shared_ptr<BlockedBloomFilter>> bf, idx_t estimated_cardinality);
+#endif
 
-	// vector<shared_ptr<HashFilter>> bf_to_create;
-    vector<shared_ptr<BlockedBloomFilter>> bf_to_create;
+#ifdef UseHashFilter
+	vector<shared_ptr<HashFilter>> bf_to_create;
+#else
+	vector<shared_ptr<BlockedBloomFilter>> bf_to_create;
+#endif
 
 	shared_ptr<Pipeline> this_pipeline;
 

@@ -8,6 +8,7 @@
 #include "duckdb/common/types/row/partitioned_tuple_data.hpp"
 #include <iostream>
 
+#ifdef UseHashFilter
 namespace duckdb {
 arrow::Status HashFilter::CreateEmpty(BufferManager* buffer, vector<LogicalType> layouts) {
   hash_table = make_shared<HashTable>(*buffer, layouts);
@@ -91,3 +92,4 @@ void HashFilterBuilder_Parallel::CleanUp() {
 void HashFilterBuilder_Parallel::Merge() {
 }
 }
+#endif

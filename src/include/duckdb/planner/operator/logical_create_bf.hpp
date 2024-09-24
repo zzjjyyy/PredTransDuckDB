@@ -14,13 +14,17 @@ public:
 	PhysicalCreateBF *physical = nullptr;
 
 public:
-	/* Hash Filter or Bloom Filter */
-	// LogicalCreateBF(vector<shared_ptr<HashFilter>> temp_result);
-    LogicalCreateBF(vector<shared_ptr<BlockedBloomFilter>> temp_result);
+#ifdef UseHashFilter
+	LogicalCreateBF(vector<shared_ptr<HashFilter>> temp_result);
+#else
+	LogicalCreateBF(vector<shared_ptr<BlockedBloomFilter>> temp_result);
+#endif
 
-	/* Hash Filter or Bloom Filter */
-	// vector<shared_ptr<HashFilter>> bf_to_create;
-    vector<shared_ptr<BlockedBloomFilter>> bf_to_create;
+#ifdef UseHashFilter
+	vector<shared_ptr<HashFilter>> bf_to_create;
+#else  
+	vector<shared_ptr<BlockedBloomFilter>> bf_to_create;
+#endif
 
 public:
 	void Serialize(Serializer &serializer) const override;

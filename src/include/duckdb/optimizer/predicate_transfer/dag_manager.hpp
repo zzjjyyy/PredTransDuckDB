@@ -36,9 +36,11 @@ public:
 
     vector<LogicalOperator*>& getExecOrder();
 
-    /* Hash Filter or Bloom Filter */
-    // void Add(idx_t create_table, shared_ptr<HashFilter> use_bf, bool reverse);
+#ifdef UseHashFilter
+    void Add(idx_t create_table, shared_ptr<HashFilter> use_bf, bool reverse);
+#else
     void Add(idx_t create_table, shared_ptr<BlockedBloomFilter> use_bf, bool reverse);
+#endif
 
     NodesManager nodes_manager;
 

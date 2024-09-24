@@ -6,9 +6,11 @@
 #include "duckdb/parallel/pipeline.hpp"
 
 namespace duckdb {
-/* Hash Filter or Bloom Filter */
-// PhysicalUseBF::PhysicalUseBF(vector<LogicalType> types, vector<shared_ptr<HashFilter>> bf, idx_t estimated_cardinality)
+#ifdef UseHashFilter
+PhysicalUseBF::PhysicalUseBF(vector<LogicalType> types, vector<shared_ptr<HashFilter>> bf, idx_t estimated_cardinality)
+#else
 PhysicalUseBF::PhysicalUseBF(vector<LogicalType> types, vector<shared_ptr<BlockedBloomFilter>> bf, idx_t estimated_cardinality)
+#endif
     : CachingPhysicalOperator(PhysicalOperatorType::USE_BF, std::move(types), estimated_cardinality), bf_to_use(bf) {}
     
 unique_ptr<OperatorState> PhysicalUseBF::GetOperatorState(ExecutionContext &context) const {
@@ -22,9 +24,11 @@ OperatorResultType PhysicalUseBF::ExecuteInternal(ExecutionContext &context, Dat
     idx_t result_count = input.size();
 	SelectionVector sel(STANDARD_VECTOR_SIZE);
 	auto bf = bf_to_use[0];
-	/* Hash Filter or Bloom Filter */
-	// HashFilterUseKernel::filter(input.data, bf, sel, result_count, row_num);
+#ifdef UseHashFilter
+	HashFilterUseKernel::filter(input.data, bf, sel, result_count, row_num);
+#else
 	BloomFilterUseKernel::filter(input.data, bf, sel, result_count, row_num);
+#endif
 	if (result_count == row_num) {
 		// nothing was filtered: skip adding any selection vectors
 		chunk.Reference(input);

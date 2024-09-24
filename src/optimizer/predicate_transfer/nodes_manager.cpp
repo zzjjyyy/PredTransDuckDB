@@ -195,20 +195,20 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_PROJECTION: {
+		// Use for TPC-H and JOB
 		RelationStats child_stats;
 		PredicateTransferOptimizer optimizer(context);
 		op->children[0] = optimizer.Optimize(std::move(op->children[0]), &child_stats);
 		AddNode(op);
-		/*
-		for (int i = 0; i < op->expressions.size(); i++) {
-			auto &expr = op->expressions[i];
-			if (expr->type == ExpressionType::BOUND_COLUMN_REF) {
-				auto &colref = expr->Cast<BoundColumnRefExpression>();
-				rename_cols.insert(std::make_pair(op->GetColumnBindings()[i], colref.binding));
-			}
-		}
-		ExtractNodes(*op->children[0], filter_operators);
-		*/
+		// Extension for TPC-DS
+		// for (int i = 0; i < op->expressions.size(); i++) {
+		// 	auto &expr = op->expressions[i];
+		// 	if (expr->type == ExpressionType::BOUND_COLUMN_REF) {
+		// 		auto &colref = expr->Cast<BoundColumnRefExpression>();
+		// 		rename_cols.insert(std::make_pair(op->GetColumnBindings()[i], colref.binding));
+		// 	}
+		// }
+		// ExtractNodes(*op->children[0], filter_operators);
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_EMPTY_RESULT: {

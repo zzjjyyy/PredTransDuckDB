@@ -18,15 +18,19 @@ public:
 
     void AddIn(idx_t from, Expression* filter,  bool forward);
 
-    /* Hash Filter or Bloom Filter */
-    // void AddIn(idx_t from, shared_ptr<HashFilter> bloom_filter, bool forward);
+#ifdef UseHashFilter
+    void AddIn(idx_t from, shared_ptr<HashFilter> bloom_filter, bool forward);
+#else
     void AddIn(idx_t from, shared_ptr<BlockedBloomFilter> bloom_filter, bool forward);
+#endif
 
     void AddOut(idx_t to, Expression* filter, bool forward);
 
-    /* Hash Filter or Bloom Filter */
-    // void AddOut(idx_t to, shared_ptr<HashFilter> bloom_filter, bool forward);
+#ifdef UseHashFilter
+    void AddOut(idx_t to, shared_ptr<HashFilter> bloom_filter, bool forward);
+#else
     void AddOut(idx_t to, shared_ptr<BlockedBloomFilter> bloom_filter, bool forward);
+#endif
 
     vector<unique_ptr<DAGEdge>> forward_in_;
     vector<unique_ptr<DAGEdge>> backward_in_;
@@ -52,9 +56,11 @@ public:
         filters.emplace_back(filter);
     }
 
-    /* Hash Filter or Bloom Filter */
-    // void Push(shared_ptr<HashFilter> bloom_filter) {
+#ifdef UseHashFilter
+    void Push(shared_ptr<HashFilter> bloom_filter) {
+#else
     void Push(shared_ptr<BlockedBloomFilter> bloom_filter) {
+#endif
         bloom_filters.emplace_back(bloom_filter);
     }
     
@@ -64,9 +70,11 @@ public:
 
     vector<Expression*> filters;
     
-    /* Hash Filter or Bloom Filter */
-    // vector<shared_ptr<HashFilter>> bloom_filters;
+#ifdef UseHashFilter
+    vector<shared_ptr<HashFilter>> bloom_filters;
+#else
     vector<shared_ptr<BlockedBloomFilter>> bloom_filters;
+#endif
 
     idx_t dest_;
 };

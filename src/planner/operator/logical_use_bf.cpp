@@ -1,9 +1,11 @@
 #include "duckdb/planner/operator/logical_use_bf.hpp"
 
 namespace duckdb {
-/* Hash Filter or Bloom Filter */
+#ifdef UseHashFilter
+LogicalUseBF::LogicalUseBF(vector<shared_ptr<HashFilter>> bf) 
+#else
 LogicalUseBF::LogicalUseBF(vector<shared_ptr<BlockedBloomFilter>> bf) 
-// LogicalUseBF::LogicalUseBF(vector<shared_ptr<HashFilter>> bf) 
+#endif
     : LogicalOperator(LogicalOperatorType::LOGICAL_USE_BF), bf_to_use(bf) {};
 
 void LogicalUseBF::Serialize(Serializer &serializer) const {

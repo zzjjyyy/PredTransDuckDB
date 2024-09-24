@@ -12,9 +12,11 @@
 #include <thread>
 
 namespace duckdb {
-/* Hash Filter or Bloom Filter */
-// PhysicalCreateBF::PhysicalCreateBF(vector<LogicalType> types, vector<shared_ptr<HashFilter>> bf, idx_t estimated_cardinality)
+#ifdef UseHashFilter
+PhysicalCreateBF::PhysicalCreateBF(vector<LogicalType> types, vector<shared_ptr<HashFilter>> bf, idx_t estimated_cardinality)
+#else
 PhysicalCreateBF::PhysicalCreateBF(vector<LogicalType> types, vector<shared_ptr<BlockedBloomFilter>> bf, idx_t estimated_cardinality)
+#endif
     : PhysicalOperator(PhysicalOperatorType::CREATE_BF, std::move(types), estimated_cardinality), bf_to_create(bf) {
 };
 
@@ -31,9 +33,11 @@ public:
 	mutex glock;
 	const PhysicalCreateBF &op;
 	ColumnDataCollection total_data;
-	/* Hash Filter or Bloom Filter */
-	// vector<shared_ptr<HashFilterBuilder>> builders;
+#ifdef UseHashFilter
+	vector<shared_ptr<HashFilterBuilder>> builders;
+#else
 	vector<shared_ptr<BloomFilterBuilder>> builders;
+#endif
 	vector<unique_ptr<ColumnDataCollection>> local_data_collections;
 };
 
@@ -100,33 +104,34 @@ public:
 			sink.total_data.FetchChunk(i, chunk);
 			for(auto &builder : sink.builders) {
 				auto cols = builder->BuiltCols();
-				/* Start of Hash Filter */
-				// DataChunk input;
-				// input.SetCardinality(chunk.size());
-				// for(int i = 0; i < cols.size(); i++) {
-				//    Vector v = chunk.data[cols[i]];
-				//	  input.data.emplace_back(v);
-				// }
-				// builder->PushNextBatch(thread_id, chunk.size(), input);
-				/* End of Hash Filter */
-				/* Start of Bloom Filter */
+#ifdef UseHashFilter
+				DataChunk input;
+				input.SetCardinality(chunk.size());
+				for(int i = 0; i < cols.size(); i++) {
+				   	Vector v = chunk.data[cols[i]];
+					input.data.emplace_back(v);
+				}
+				builder->PushNextBatch(thread_id, chunk.size(), input);
+#else
 				Vector hashes(LogicalType::HASH);
 				VectorOperations::Hash(chunk.data[cols[0]], hashes, chunk.size());
 				for(int i = 1; i < cols.size(); i++) {
 					VectorOperations::CombineHash(hashes, chunk.data[cols[i]], chunk.size());
 				}
 				builder->PushNextBatch(thread_id, chunk.size(), (hash_t*)hashes.GetData());
-				/* End of Bloom Filter */
+#endif
 			}
 		}
-		/* Start of Hash Filter */
-		// for (auto &builder : sink.builders) {
-		//	   builder->build_target_->hash_table->Unpartition();
-		//	   builder->build_target_->hash_table->InitializePointerTable();
-		//	   const auto chunk_count = builder->build_target_->hash_table->GetDataCollection().ChunkCount();
-		//	   builder->build_target_->hash_table->Finalize(0, chunk_count, false);
-		// }
-		/* End of Hash Filter */
+#ifdef UseHashFilter
+		for (auto &builder : sink.builders) {
+			builder->build_target_->hash_table->Unpartition();
+			builder->build_target_->hash_table->InitializePointerTable();
+			const auto chunk_count = builder->build_target_->hash_table->GetDataCollection().ChunkCount();
+			if(chunk_count > 0) {
+				builder->build_target_->hash_table->Finalize(0, chunk_count, false);
+			}
+		}
+#endif
 		event->FinishTask();
 		tcontext.profiler.EndOperator(nullptr);
 		this->executor.Flush(tcontext);
@@ -210,34 +215,32 @@ SinkFinalizeType PhysicalCreateBF::Finalize(Pipeline &pipeline, Event &event, Cl
 	const idx_t num_threads = TaskScheduler::GetScheduler(context).NumberOfThreads();
 	for (auto &filter : bf_to_create) {
 		if (num_threads == 1) {
-			/* Start of Hash Filter */
-			// auto builder = make_shared<HashFilterBuilder_SingleThreaded>();
-			// auto cols = filter->BoundColsBuilt;
-			// vector<LogicalType> layouts;
-			// for(int i = 0; i < cols.size(); i++) {
-			// 	layouts.emplace_back(sink.total_data.Types()[cols[i]]);
-			// }
-			// builder->Begin(1, arrow::internal::CpuInfo::AVX2, &BufferManager::GetBufferManager(context), layouts, 0, filter.get());
-			/* End of Hash Filter */
-			/* Start of Bloom Filter */
+#ifdef UseHashFilter
+			auto builder = make_shared<HashFilterBuilder_SingleThreaded>();
+			auto cols = filter->BoundColsBuilt;
+			vector<LogicalType> layouts;
+			for(int i = 0; i < cols.size(); i++) {
+				layouts.emplace_back(sink.total_data.Types()[cols[i]]);
+			}
+			builder->Begin(1, arrow::internal::CpuInfo::AVX2, &BufferManager::GetBufferManager(context), layouts, 0, filter.get());
+#else
 			auto builder = make_shared<BloomFilterBuilder_SingleThreaded>();
 			builder->Begin(1, arrow::internal::CpuInfo::AVX2, arrow::default_memory_pool(), num_rows, 0, filter.get());
-			/* End of Bloom Filter */
+#endif
 			sink.builders.emplace_back(builder);
 		} else {
-			/* Start of Hash Filter */
-			// auto builder = make_shared<HashFilterBuilder_Parallel>();
-			// auto cols = filter->BoundColsBuilt;
-			// vector<LogicalType> layouts;
-			// for(int i = 0; i < cols.size(); i++) {
-			// 	layouts.emplace_back(sink.total_data.Types()[cols[i]]);
-			// }
-			// builder->Begin(num_threads, arrow::internal::CpuInfo::AVX2, &BufferManager::GetBufferManager(context), layouts, 0, filter.get());
-			/* End of Hash Filter */
-			/* Start of Bloom Filter */
+#ifdef UseHashFilter
+			auto builder = make_shared<HashFilterBuilder_Parallel>();
+			auto cols = filter->BoundColsBuilt;
+			vector<LogicalType> layouts;
+			for(int i = 0; i < cols.size(); i++) {
+				layouts.emplace_back(sink.total_data.Types()[cols[i]]);
+			}
+			builder->Begin(num_threads, arrow::internal::CpuInfo::AVX2, &BufferManager::GetBufferManager(context), layouts, 0, filter.get());
+#else
 			auto builder = make_shared<BloomFilterBuilder_Parallel>();
 			builder->Begin(num_threads, arrow::internal::CpuInfo::AVX2, arrow::default_memory_pool(), num_rows, 0, filter.get());
-			/* End of Bloom Filter */
+#endif
 			sink.builders.emplace_back(builder);
 		}
 	}
