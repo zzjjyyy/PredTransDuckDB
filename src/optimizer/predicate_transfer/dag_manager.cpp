@@ -249,10 +249,10 @@ void DAGManager::CreateDAG() {
     while(nodes_manager.getNodes().size() > 0) {
         auto &sorted_nodes = nodes_manager.getSortedNodes();
         LargestRoot(sorted_nodes);
-        // Small2Large(sorted_nodes);
         // RandomRoot(sorted_nodes);
         nodes_manager.ReSortNodes();
     }
+    // Small2Large(sorted_nodes);
     nodes_manager.RecoverNodes();
     for (auto &filter_and_binding : filters_and_bindings_) {
         if(filter_and_binding) {
