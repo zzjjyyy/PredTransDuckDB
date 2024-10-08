@@ -74,6 +74,14 @@ void NodesManager::SortNodes() {
 	sort(sort_nodes.begin(), sort_nodes.end(), NodesManager::nodesCmp);
 }
 
+void NodesManager::ReSortNodes() {
+	sort_nodes.clear();
+    for(auto &node : nodes) {
+		sort_nodes.emplace_back(node.second);
+	}
+	sort(sort_nodes.begin(), sort_nodes.end(), NodesManager::nodesCmp);
+}
+
 static bool OperatorNeedsRelation(LogicalOperatorType op_type) {
 	switch (op_type) {
 	case LogicalOperatorType::LOGICAL_PROJECTION:
@@ -86,6 +94,10 @@ static bool OperatorNeedsRelation(LogicalOperatorType op_type) {
 	default:
 		return false;
 	}
+}
+
+void NodesManager::EraseNode(idx_t key) {
+	auto itr = nodes.erase(key);
 }
 
 /* Extract All the vertex nodes */
@@ -105,7 +117,7 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 		op = op->children[0].get();
 	}
 
-	bool join_connected = false;
+	// bool join_connected = false;
 	if (op->type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN || op->type == LogicalOperatorType::LOGICAL_DELIM_JOIN) {
 		auto &join = op->Cast<LogicalComparisonJoin>();
 		if (join.join_type == JoinType::INNER
@@ -119,7 +131,7 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 				&& jc.left->type == ExpressionType::BOUND_COLUMN_REF
 				&& jc.right->type == ExpressionType::BOUND_COLUMN_REF) {
 					filter_operators.push_back(*op);
-					join_connected = true;
+					// join_connected = true;
 					break;
 				}
 			}
@@ -162,17 +174,17 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 	case LogicalOperatorType::LOGICAL_CROSS_PRODUCT:
 	case LogicalOperatorType::LOGICAL_ANY_JOIN:
 	case LogicalOperatorType::LOGICAL_ASOF_JOIN: {
-		if (join_connected) {
-			// Adding relations to the current join order optimizer
-			ExtractNodes(*op->children[0], filter_operators);
-			ExtractNodes(*op->children[1], filter_operators);
-		} else {
-			for(int i = 0; i < op->children.size(); i++) {
-				RelationStats child_stats;
-				PredicateTransferOptimizer optimizer(context);
-				op->children[i] = optimizer.Optimize(std::move(op->children[i]), &child_stats);
-			}
-		}
+		// if (join_connected) {
+		// Adding relations to the current join order optimizer
+		ExtractNodes(*op->children[0], filter_operators);
+		ExtractNodes(*op->children[1], filter_operators);
+		// } else {
+		// 	for(int i = 0; i < op->children.size(); i++) {
+		// 		RelationStats child_stats;
+		// 		PredicateTransferOptimizer optimizer(context);
+		// 		op->children[i] = optimizer.Optimize(std::move(op->children[i]), &child_stats);
+		// 	}
+		// }
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_DUMMY_SCAN: {
@@ -196,19 +208,19 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 	}
 	case LogicalOperatorType::LOGICAL_PROJECTION: {
 		// Use for TPC-H and JOB
-		RelationStats child_stats;
-		PredicateTransferOptimizer optimizer(context);
-		op->children[0] = optimizer.Optimize(std::move(op->children[0]), &child_stats);
-		AddNode(op);
+		// RelationStats child_stats;
+		// PredicateTransferOptimizer optimizer(context);
+		// op->children[0] = optimizer.Optimize(std::move(op->children[0]), &child_stats);
+		// AddNode(op);
 		// Extension for TPC-DS
-		// for (int i = 0; i < op->expressions.size(); i++) {
-		// 	auto &expr = op->expressions[i];
-		// 	if (expr->type == ExpressionType::BOUND_COLUMN_REF) {
-		// 		auto &colref = expr->Cast<BoundColumnRefExpression>();
-		// 		rename_cols.insert(std::make_pair(op->GetColumnBindings()[i], colref.binding));
-		// 	}
-		// }
-		// ExtractNodes(*op->children[0], filter_operators);
+		for (int i = 0; i < op->expressions.size(); i++) {
+			auto &expr = op->expressions[i];
+			if (expr->type == ExpressionType::BOUND_COLUMN_REF) {
+				auto &colref = expr->Cast<BoundColumnRefExpression>();
+				rename_cols.insert(std::make_pair(op->GetColumnBindings()[i], colref.binding));
+			}
+		}
+		ExtractNodes(*op->children[0], filter_operators);
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_EMPTY_RESULT: {

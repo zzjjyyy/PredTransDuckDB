@@ -14,6 +14,8 @@ public:
 
 	void SortNodes();
 
+	void ReSortNodes();
+
 	const vector<RelationStats> GetRelationStats();
 
 	LogicalOperator* getNode(idx_t table_binding) {
@@ -30,6 +32,19 @@ public:
 		return nodes;
 	}
 
+	void EraseNode(idx_t key);
+
+	void DuplicateNodes() {
+		duplicate_nodes = nodes;
+		// for(auto itr : nodes) {
+		// 	duplicate_nodes.insert(itr);
+		// }
+	}
+
+	void RecoverNodes() {
+		nodes = duplicate_nodes;
+	}
+
 	vector<LogicalOperator*>& getSortedNodes() {
 		return sort_nodes;
 	}
@@ -42,10 +57,11 @@ private:
 	ClientContext &context;
 
 	unordered_map<idx_t, LogicalOperator*> nodes;
+	unordered_map<idx_t, LogicalOperator*> duplicate_nodes;
 
 	//! sorted
 	vector<LogicalOperator*> sort_nodes;
-
+	
 	static int nodesCmp(LogicalOperator *a, LogicalOperator *b);
 
 	struct HashFunc {

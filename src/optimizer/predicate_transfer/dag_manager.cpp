@@ -13,7 +13,7 @@ bool DAGManager::Build(LogicalOperator &plan) {
     vector<reference<LogicalOperator>> filter_operators;
     /* Extract All the vertex nodes */
     nodes_manager.ExtractNodes(plan, filter_operators);
-    auto& nodes = nodes_manager.getNodes();
+    nodes_manager.DuplicateNodes();
     if(nodes_manager.NumNodes() < 2) {
         return false;
     }
@@ -23,16 +23,16 @@ bool DAGManager::Build(LogicalOperator &plan) {
     if(filters_and_bindings_.size() == 0) {
         return false;
     }
-    for (auto itr = nodes.begin(); itr != nodes.end();) {
-        auto v = GetNeighbors(itr->first);
-        if (v.size() == 0) {
-            auto &sorted = nodes_manager.getSortedNodes();
-            sorted.erase(std::find(sorted.begin(), sorted.end(), itr->second));
-            itr = nodes_manager.getNodes().erase(itr);
-        } else {
-            itr++;
-        }
-    }
+    // for (auto itr = nodes.begin(); itr != nodes.end();) {
+    //     auto v = GetNeighbors(itr->first);
+    //     if (v.size() == 0) {
+    //         auto &sorted = nodes_manager.getSortedNodes();
+    //         sorted.erase(std::find(sorted.begin(), sorted.end(), itr->second));
+    //         itr = nodes_manager.getNodes().erase(itr);
+    //     } else {
+    //         itr++;
+    //     }
+    // }
 	// Create the query_graph hyper edges
 	CreateDAG();
     return true;
@@ -182,6 +182,7 @@ void DAGManager::LargestRoot(vector<LogicalOperator*> &sorted_nodes) {
             }
         }
         ExecOrder.emplace_back(nodes_manager.getNode(node->Id()));
+        nodes_manager.EraseNode(node->Id());
     }
 }
 
@@ -244,10 +245,14 @@ void DAGManager::RandomRoot(vector<LogicalOperator*> &sorted_nodes) {
 }
 
 void DAGManager::CreateDAG() {
-    auto &sorted_nodes = nodes_manager.getSortedNodes();
-    LargestRoot(sorted_nodes);
-    // Small2Large(sorted_nodes);
-    // RandomRoot(sorted_nodes);
+    while(nodes_manager.getNodes().size() > 0) {
+        auto &sorted_nodes = nodes_manager.getSortedNodes();
+        LargestRoot(sorted_nodes);
+        // Small2Large(sorted_nodes);
+        // RandomRoot(sorted_nodes);
+        nodes_manager.ReSortNodes();
+    }
+    nodes_manager.RecoverNodes();
     for (auto &filter_and_binding : filters_and_bindings_) {
         if(filter_and_binding) {
             idx_t large;
