@@ -241,6 +241,7 @@ void DAGManager::RandomRoot(vector<LogicalOperator*> &sorted_nodes) {
             }
         }
         ExecOrder.emplace_back(nodes_manager.getNode(node->Id()));
+        nodes_manager.EraseNode(node->Id());
     }
 }
 
