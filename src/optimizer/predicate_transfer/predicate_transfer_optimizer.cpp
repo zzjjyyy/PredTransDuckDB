@@ -24,29 +24,19 @@
 namespace duckdb {
 std::unordered_map<std::string, int> PredicateTransferOptimizer::table_exists;
 
-LogicalGet& PredicateTransferOptimizer::LogicalGetinFilter(LogicalOperator &op) {
-	if(op.type == LogicalOperatorType::LOGICAL_FILTER) {
-		LogicalOperator* child = op.children[0].get();
-		while (child->type != LogicalOperatorType::LOGICAL_GET) {
-			child = child->children[0].get();
-		}
-		return child->Cast<LogicalGet>();
-	} else if (op.type == LogicalOperatorType::LOGICAL_GET) {
-		return op.Cast<LogicalGet>();
-	}
-}
-
 /* For PredTransfer */
 /* Here is the entry of PredicateTransferOptimizer */
 /* Given a query plan, we insert CreateBF and UseBF into it */
-unique_ptr<LogicalOperator> PredicateTransferOptimizer::Optimize(unique_ptr<LogicalOperator> plan,
+unique_ptr<LogicalOperator> PredicateTransferOptimizer::PreOptimize(unique_ptr<LogicalOperator> plan,
                                                                  optional_ptr<RelationStats> stats) {
 	/* Build the DAG to decide the transfer order */
 	bool success = dag_manager.Build(*plan); 
-	if(!success) {
-		return plan;
-	}
-    auto &ordered_nodes = dag_manager.getExecOrder();
+	return plan;
+}
+
+unique_ptr<LogicalOperator> PredicateTransferOptimizer::Optimize(unique_ptr<LogicalOperator> plan,
+                                                                 optional_ptr<RelationStats> stats) {
+	auto &ordered_nodes = dag_manager.getExecOrder();
 	// Forward
 	for(int i = ordered_nodes.size() - 1; i >= 0; i--) {
         auto current_node = ordered_nodes[i];
@@ -170,8 +160,7 @@ idx_t PredicateTransferOptimizer::GetNodeId(LogicalOperator &node) {
 			break;
 		}
 		case LogicalOperatorType::LOGICAL_FILTER: {
-			auto &get = LogicalGetinFilter(node);
-			res = get.GetTableIndex()[0];
+			res = NodesManager::GetTableIndexinFilter(&node);
 			break;
 		}
 		case LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY: {
@@ -238,7 +227,11 @@ void PredicateTransferOptimizer::GetAllBFCreate(idx_t cur, vector<shared_ptr<Blo
 					cur_filter->AddColumnBindingBuilt(dag_manager.nodes_manager.FindRename(expressions[1]->binding));
 				}
 			}
-			temp_result_to_create.emplace_back(cur_filter);
+			if (cur_filter->column_bindings_built_.size() != 0) {
+				temp_result_to_create.emplace_back(cur_filter);
+			} else {
+				throw InternalException("No bound colmun found!");
+			}
 		}
 	} else {
 		for(auto &edge : dag_manager.nodes.nodes[cur]->backward_out_) {
@@ -260,7 +253,11 @@ void PredicateTransferOptimizer::GetAllBFCreate(idx_t cur, vector<shared_ptr<Blo
 					cur_filter->AddColumnBindingBuilt(dag_manager.nodes_manager.FindRename(expressions[1]->binding));
 				}
 			}
-			temp_result_to_create.emplace_back(cur_filter);
+			if (cur_filter->column_bindings_built_.size() != 0) {
+				temp_result_to_create.emplace_back(cur_filter);
+			} else {
+				throw InternalException("No built colmun found!");
+			}
 		}
 	}
 }
@@ -413,80 +410,80 @@ bool PredicateTransferOptimizer::PossibleFilterAny(LogicalOperator &node, bool r
 	return true;
 }
 
-/* Only for microbenchmark */
-unique_ptr<LogicalOperator> PredicateTransferOptimizer::InsertCreateTable(unique_ptr<LogicalOperator> plan, LogicalOperator* plan_ptr) {
-	if(plan_ptr->type != LogicalOperatorType::LOGICAL_GET && plan_ptr->type != LogicalOperatorType::LOGICAL_FILTER) {
-		return plan;
-	}
-	LogicalGet& get = LogicalGetinFilter(*plan_ptr);
-	auto info = make_uniq<CreateTableInfo>();
-	info->catalog = INVALID_CATALOG;
-	info->schema = DEFAULT_SCHEMA;
-	auto name = get.function.to_string(get.bind_data.get());
-	if(table_exists.find(name) == table_exists.end()) {
-		info->table = name + "1";
-		table_exists[name] = 2;
-	} else {
-		info->table = name + std::to_string(table_exists[name]);
-		table_exists[name]++;
-	}
+// /* Only for microbenchmark */
+// unique_ptr<LogicalOperator> PredicateTransferOptimizer::InsertCreateTable(unique_ptr<LogicalOperator> plan, LogicalOperator* plan_ptr) {
+// 	if(plan_ptr->type != LogicalOperatorType::LOGICAL_GET && plan_ptr->type != LogicalOperatorType::LOGICAL_FILTER) {
+// 		return plan;
+// 	}
+// 	LogicalGet& get = LogicalGetinFilter(*plan_ptr);
+// 	auto info = make_uniq<CreateTableInfo>();
+// 	info->catalog = INVALID_CATALOG;
+// 	info->schema = DEFAULT_SCHEMA;
+// 	auto name = get.function.to_string(get.bind_data.get());
+// 	if(table_exists.find(name) == table_exists.end()) {
+// 		info->table = name + "1";
+// 		table_exists[name] = 2;
+// 	} else {
+// 		info->table = name + std::to_string(table_exists[name]);
+// 		table_exists[name]++;
+// 	}
 	
-	if (get.projection_ids.empty()) {
-		for (auto &index : get.column_ids) {
-			info->columns.AddColumn(ColumnDefinition(get.names[index], get.returned_types[index]));
-		}
-	} else {
-		for (auto &proj_index : get.projection_ids) {
-			auto &index = get.column_ids[proj_index];
-			info->columns.AddColumn(ColumnDefinition(get.names[index], get.returned_types[index]));
-		}
-	}
-	if (info->catalog.empty() && !info->schema.empty()) {
-		auto &db_manager = DatabaseManager::Get(context);
-		auto database = db_manager.GetDatabase(context, info->schema);
-		if (database) {
-			auto schema_obj = Catalog::GetSchema(context, INVALID_CATALOG, info->schema, OnEntryNotFound::RETURN_NULL);
-			if (schema_obj) {
-				auto &attached = schema_obj->catalog.GetAttached();
-				throw BinderException("Ambiguous reference to catalog or schema \"%s\" - use a fully qualified path like \"%s.%s\"", info->schema, attached.GetName(), info->schema);
-			}
-			info->catalog = info->schema;
-			info->schema = string();
-		}
-	}
-	if (IsInvalidCatalog(info->catalog) && info->temporary) {
-		info->catalog = TEMP_CATALOG;
-	}
-	auto &search_path = ClientData::Get(context).catalog_search_path;
-	if (IsInvalidCatalog(info->catalog) && IsInvalidSchema(info->schema)) {
-		auto &default_entry = search_path->GetDefault();
-		info->catalog = default_entry.catalog;
-		info->schema = default_entry.schema;
-	} else if (IsInvalidSchema(info->schema)) {
-		info->schema = search_path->GetDefaultSchema(info->catalog);
-	} else if (IsInvalidCatalog(info->catalog)) {
-		info->catalog = search_path->GetDefaultCatalog(info->schema);
-	}
-	if (IsInvalidCatalog(info->catalog)) {
-		info->catalog = DatabaseManager::GetDefaultDatabase(context);
-	}
-	if (!info->temporary) {
-		// non-temporary create: not read only
-		if (info->catalog == TEMP_CATALOG) {
-			throw ParserException("Only TEMPORARY table names can use the \"%s\" catalog", TEMP_CATALOG);
-		}
-	} else {
-		if (info->catalog != TEMP_CATALOG) {
-			throw ParserException("TEMPORARY table names can *only* use the \"%s\" catalog", TEMP_CATALOG);
-		}
-	}
-	auto &schema_obj = Catalog::GetSchema(context, info->catalog, info->schema);
-	D_ASSERT(schema_obj.type == CatalogType::SCHEMA_ENTRY);
-	info->schema = schema_obj.name;
-	auto bound_info = make_uniq<BoundCreateTableInfo>(schema_obj, std::move(info));
-	auto &schema = bound_info->schema;
-	auto create_table = make_uniq<LogicalCreateTableforBF>(schema, std::move(bound_info));
-	create_table->AddChild(std::move(plan));
-	return unique_ptr_cast<LogicalCreateTableforBF, LogicalOperator>(std::move(create_table));
-}
+// 	if (get.projection_ids.empty()) {
+// 		for (auto &index : get.column_ids) {
+// 			info->columns.AddColumn(ColumnDefinition(get.names[index], get.returned_types[index]));
+// 		}
+// 	} else {
+// 		for (auto &proj_index : get.projection_ids) {
+// 			auto &index = get.column_ids[proj_index];
+// 			info->columns.AddColumn(ColumnDefinition(get.names[index], get.returned_types[index]));
+// 		}
+// 	}
+// 	if (info->catalog.empty() && !info->schema.empty()) {
+// 		auto &db_manager = DatabaseManager::Get(context);
+// 		auto database = db_manager.GetDatabase(context, info->schema);
+// 		if (database) {
+// 			auto schema_obj = Catalog::GetSchema(context, INVALID_CATALOG, info->schema, OnEntryNotFound::RETURN_NULL);
+// 			if (schema_obj) {
+// 				auto &attached = schema_obj->catalog.GetAttached();
+// 				throw BinderException("Ambiguous reference to catalog or schema \"%s\" - use a fully qualified path like \"%s.%s\"", info->schema, attached.GetName(), info->schema);
+// 			}
+// 			info->catalog = info->schema;
+// 			info->schema = string();
+// 		}
+// 	}
+// 	if (IsInvalidCatalog(info->catalog) && info->temporary) {
+// 		info->catalog = TEMP_CATALOG;
+// 	}
+// 	auto &search_path = ClientData::Get(context).catalog_search_path;
+// 	if (IsInvalidCatalog(info->catalog) && IsInvalidSchema(info->schema)) {
+// 		auto &default_entry = search_path->GetDefault();
+// 		info->catalog = default_entry.catalog;
+// 		info->schema = default_entry.schema;
+// 	} else if (IsInvalidSchema(info->schema)) {
+// 		info->schema = search_path->GetDefaultSchema(info->catalog);
+// 	} else if (IsInvalidCatalog(info->catalog)) {
+// 		info->catalog = search_path->GetDefaultCatalog(info->schema);
+// 	}
+// 	if (IsInvalidCatalog(info->catalog)) {
+// 		info->catalog = DatabaseManager::GetDefaultDatabase(context);
+// 	}
+// 	if (!info->temporary) {
+// 		// non-temporary create: not read only
+// 		if (info->catalog == TEMP_CATALOG) {
+// 			throw ParserException("Only TEMPORARY table names can use the \"%s\" catalog", TEMP_CATALOG);
+// 		}
+// 	} else {
+// 		if (info->catalog != TEMP_CATALOG) {
+// 			throw ParserException("TEMPORARY table names can *only* use the \"%s\" catalog", TEMP_CATALOG);
+// 		}
+// 	}
+// 	auto &schema_obj = Catalog::GetSchema(context, info->catalog, info->schema);
+// 	D_ASSERT(schema_obj.type == CatalogType::SCHEMA_ENTRY);
+// 	info->schema = schema_obj.name;
+// 	auto bound_info = make_uniq<BoundCreateTableInfo>(schema_obj, std::move(info));
+// 	auto &schema = bound_info->schema;
+// 	auto create_table = make_uniq<LogicalCreateTableforBF>(schema, std::move(bound_info));
+// 	create_table->AddChild(std::move(plan));
+// 	return unique_ptr_cast<LogicalCreateTableforBF, LogicalOperator>(std::move(create_table));
+// }
 }

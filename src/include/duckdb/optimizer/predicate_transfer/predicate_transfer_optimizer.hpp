@@ -9,9 +9,9 @@ public:
     explicit PredicateTransferOptimizer(ClientContext &context) : context(context), dag_manager(context) {
 	}
 
-    unique_ptr<LogicalOperator> Optimize(unique_ptr<LogicalOperator> plan, optional_ptr<RelationStats> stats = nullptr);
+    unique_ptr<LogicalOperator> PreOptimize(unique_ptr<LogicalOperator> plan, optional_ptr<RelationStats> stats = nullptr);
 
-    static LogicalGet& LogicalGetinFilter(LogicalOperator &op);
+    unique_ptr<LogicalOperator> Optimize(unique_ptr<LogicalOperator> plan, optional_ptr<RelationStats> stats = nullptr);
 
     unique_ptr<LogicalOperator> InsertCreateBFOperator(unique_ptr<LogicalOperator> plan);
 

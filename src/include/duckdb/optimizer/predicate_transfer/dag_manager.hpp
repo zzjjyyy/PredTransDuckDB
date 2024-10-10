@@ -53,7 +53,22 @@ private:
 
     vector<LogicalOperator*> ExecOrder;
     
-    vector<unique_ptr<DAGEdgeInfo>> filters_and_bindings_;
+    struct PairHash {
+        std::size_t operator()(const pair<int, int>& m) const {
+            std::hash<int> hashVal;
+            return hashVal(m.first) ^ hashVal(m.second);
+        }
+    };
+
+    struct PairEqual {
+        bool operator()(const pair<int, int>& lhs, const pair<int, int>& rhs) const {
+            return lhs.first == rhs.first && lhs.second == rhs.second;
+        }
+    };
+
+    // (small table, large table), (large table, small table) are both valid
+    unordered_map<pair<int, int>, vector<shared_ptr<DAGEdgeInfo>>, PairHash, PairEqual> filters_and_bindings_;
+    vector<shared_ptr<DAGEdgeInfo>> selected_filters_and_bindings_;
 
     void ExtractEdges(LogicalOperator &op,
                       vector<reference<LogicalOperator>> &filter_operators);
@@ -63,6 +78,8 @@ private:
     void RandomRoot(vector<LogicalOperator*> &sorted_nodes);
 
     void CreateDAG();
+
+    pair<int, int> FindEdge(unordered_set<int> &constructed_set, unordered_set<int> &unconstructed_set);
 
     vector<DAGNode*> GetNeighbors(idx_t node_id);
 

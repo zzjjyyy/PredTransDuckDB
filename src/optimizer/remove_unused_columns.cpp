@@ -291,6 +291,12 @@ void RemoveUnusedColumns::VisitOperator(LogicalOperator &op) {
 		}
 		break;
 	}
+	case LogicalOperatorType::LOGICAL_CREATE_BF:
+	case LogicalOperatorType::LOGICAL_USE_BF: {
+		// TODO: we can do something more clever here
+		everything_referenced = true;
+		break;
+	}
 	case LogicalOperatorType::LOGICAL_DISTINCT: {
 		// distinct, all projected columns are used for the DISTINCT computation
 		// mark all columns as used and continue to the children

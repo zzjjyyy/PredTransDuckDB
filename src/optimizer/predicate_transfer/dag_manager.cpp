@@ -23,16 +23,6 @@ bool DAGManager::Build(LogicalOperator &plan) {
     if(filters_and_bindings_.size() == 0) {
         return false;
     }
-    // for (auto itr = nodes.begin(); itr != nodes.end();) {
-    //     auto v = GetNeighbors(itr->first);
-    //     if (v.size() == 0) {
-    //         auto &sorted = nodes_manager.getSortedNodes();
-    //         sorted.erase(std::find(sorted.begin(), sorted.end(), itr->second));
-    //         itr = nodes_manager.getNodes().erase(itr);
-    //     } else {
-    //         itr++;
-    //     }
-    // }
 	// Create the query_graph hyper edges
 	CreateDAG();
     return true;
@@ -114,31 +104,73 @@ void DAGManager::ExtractEdges(LogicalOperator &op,
                     || join.join_type == JoinType::RIGHT_SEMI
                     || join.join_type == JoinType::MARK) {
                         if (left_node_in_order > right_node_in_order) {
-                            auto filter_info = make_uniq<DAGEdgeInfo>(std::move(comparison), *left_node, *right_node);
-                            filters_and_bindings_.push_back(std::move(filter_info));
+                            auto filter_info = make_shared<DAGEdgeInfo>(std::move(comparison), *left_node, *right_node);
+                            auto key1 = make_pair(right_table, left_table);
+                            auto key2 = make_pair(left_table, right_table);
+                            if (filters_and_bindings_.find(key1) == filters_and_bindings_.end()) {
+                                filters_and_bindings_[key1] = vector<shared_ptr<DAGEdgeInfo>>();
+                                filters_and_bindings_[key2] = vector<shared_ptr<DAGEdgeInfo>>();
+                            }
+                            filters_and_bindings_[key1].emplace_back(filter_info);
+                            filters_and_bindings_[key2].emplace_back(filter_info);
                         } else {
-                            auto filter_info = make_uniq<DAGEdgeInfo>(std::move(comparison), *right_node, *left_node);
-                            filters_and_bindings_.push_back(std::move(filter_info));
+                            auto filter_info = make_shared<DAGEdgeInfo>(std::move(comparison), *right_node, *left_node);
+                            auto key1 = make_pair(right_table, left_table);
+                            auto key2 = make_pair(left_table, right_table);
+                            if (filters_and_bindings_.find(key1) == filters_and_bindings_.end()) {
+                                filters_and_bindings_[key1] = vector<shared_ptr<DAGEdgeInfo>>();
+                                filters_and_bindings_[key2] = vector<shared_ptr<DAGEdgeInfo>>();
+                            }
+                            filters_and_bindings_[key1].emplace_back(filter_info);
+                            filters_and_bindings_[key2].emplace_back(filter_info);
                         }
                     } else if (join.join_type == JoinType::LEFT) {
                         if (left_node_in_order > right_node_in_order) {
-                            auto filter_info = make_uniq<DAGEdgeInfo>(std::move(comparison), *left_node, *right_node);
+                            auto filter_info = make_shared<DAGEdgeInfo>(std::move(comparison), *left_node, *right_node);
                             filter_info->large_protect = true;
-                            filters_and_bindings_.push_back(std::move(filter_info));
+                            auto key1 = make_pair(right_table, left_table);
+                            auto key2 = make_pair(left_table, right_table);
+                            if (filters_and_bindings_.find(key1) == filters_and_bindings_.end()) {
+                                filters_and_bindings_[key1] = vector<shared_ptr<DAGEdgeInfo>>();
+                                filters_and_bindings_[key2] = vector<shared_ptr<DAGEdgeInfo>>();
+                            }
+                            filters_and_bindings_[key1].emplace_back(filter_info);
+                            filters_and_bindings_[key2].emplace_back(filter_info);
                         } else {
-                            auto filter_info = make_uniq<DAGEdgeInfo>(std::move(comparison), *right_node, *left_node);
+                            auto filter_info = make_shared<DAGEdgeInfo>(std::move(comparison), *right_node, *left_node);
                             filter_info->small_protect = true;
-                            filters_and_bindings_.push_back(std::move(filter_info));
+                            auto key1 = make_pair(right_table, left_table);
+                            auto key2 = make_pair(left_table, right_table);
+                            if (filters_and_bindings_.find(key1) == filters_and_bindings_.end()) {
+                                filters_and_bindings_[key1] = vector<shared_ptr<DAGEdgeInfo>>();
+                                filters_and_bindings_[key2] = vector<shared_ptr<DAGEdgeInfo>>();
+                            }
+                            filters_and_bindings_[key1].emplace_back(filter_info);
+                            filters_and_bindings_[key2].emplace_back(filter_info);
                         }
                     } else if (join.join_type == JoinType::RIGHT) {
                         if (left_node_in_order > right_node_in_order) {
-                            auto filter_info = make_uniq<DAGEdgeInfo>(std::move(comparison), *left_node, *right_node);
+                            auto filter_info = make_shared<DAGEdgeInfo>(std::move(comparison), *left_node, *right_node);
                             filter_info->small_protect = true;
-                            filters_and_bindings_.push_back(std::move(filter_info));
+                            auto key1 = make_pair(right_table, left_table);
+                            auto key2 = make_pair(left_table, right_table);
+                            if (filters_and_bindings_.find(key1) == filters_and_bindings_.end()) {
+                                filters_and_bindings_[key1] = vector<shared_ptr<DAGEdgeInfo>>();
+                                filters_and_bindings_[key2] = vector<shared_ptr<DAGEdgeInfo>>();
+                            }
+                            filters_and_bindings_[key1].emplace_back(filter_info);
+                            filters_and_bindings_[key2].emplace_back(filter_info);
                         } else {
-                            auto filter_info = make_uniq<DAGEdgeInfo>(std::move(comparison), *right_node, *left_node);
+                            auto filter_info = make_shared<DAGEdgeInfo>(std::move(comparison), *right_node, *left_node);
                             filter_info->large_protect = true;
-                            filters_and_bindings_.push_back(std::move(filter_info));
+                            auto key1 = make_pair(right_table, left_table);
+                            auto key2 = make_pair(left_table, right_table);
+                            if (filters_and_bindings_.find(key1) == filters_and_bindings_.end()) {
+                                filters_and_bindings_[key1] = vector<shared_ptr<DAGEdgeInfo>>();
+                                filters_and_bindings_[key2] = vector<shared_ptr<DAGEdgeInfo>>();
+                            }
+                            filters_and_bindings_[key1].emplace_back(filter_info);
+                            filters_and_bindings_[key2].emplace_back(filter_info);
                         }
                     }
 				}
@@ -154,35 +186,72 @@ struct DAGNodeCompare {
     }
 };
 
+pair<int, int> DAGManager::FindEdge(unordered_set<int> &constructed_set, unordered_set<int> &unconstructed_set) {
+    idx_t max_weight = 0;
+    idx_t max_card = 0;
+    auto result = make_pair(-1, -1);
+    for(int i : unconstructed_set) {
+        for(int j : constructed_set) {
+            auto key = make_pair(j, i);
+            if (filters_and_bindings_.find(key) != filters_and_bindings_.end()) {
+                auto card = nodes_manager.getNode(i)->estimated_cardinality;
+                auto weight = filters_and_bindings_[key].size();
+                if(weight > max_weight) {
+                    max_weight = weight;
+                    max_card = card;
+                    result = key;
+                } else if (weight == max_weight) {
+                    if(card > max_card) {
+                        max_card = card;
+                        result = key;
+                    }
+                }
+            }
+        }
+    }
+    return result;
+}
+
 void DAGManager::LargestRoot(vector<LogicalOperator*> &sorted_nodes) {
-    std::priority_queue<DAGNode*, vector<DAGNode*>, DAGNodeCompare> list;
-    unordered_set<idx_t> met;
+    unordered_set<int> constructed_set;
+    unordered_set<int> unconstructed_set;
+    int prior_flag = nodes_manager.NumNodes() - 1;
+    int root = -1;
     // Create Vertices
     for(auto &vertex : nodes_manager.getNodes()) {
         // Set the last operator as root
         if(vertex.second == sorted_nodes.back()) {
             auto node = make_uniq<DAGNode>(vertex.first, vertex.second->estimated_cardinality, true);
-            list.push(node.get());
-            met.emplace(node->Id());
+            node->priority = prior_flag--;
+            constructed_set.emplace(vertex.first);
             nodes.nodes[vertex.first] = std::move(node);
+            root = vertex.first;
         } else {
-            nodes.nodes[vertex.first] = make_uniq<DAGNode>(vertex.first, vertex.second->estimated_cardinality, false);
+            auto node = make_uniq<DAGNode>(vertex.first, vertex.second->estimated_cardinality, false);
+            unconstructed_set.emplace(vertex.first);
+            nodes.nodes[vertex.first] = std::move(node);
         }
     }
-    int prior_flag = nodes_manager.NumNodes() - 1;
-    while(!list.empty()) {
-        auto node = list.top();
-        list.pop();
-        node->priority = prior_flag--;
-        auto neighbors = GetNeighbors(node->Id());
-        for(auto i : neighbors) {
-            if (met.find(i->Id()) == met.end()) {
-                list.push(i);
-                met.emplace(i->Id());
+    // delete root
+    ExecOrder.emplace_back(nodes_manager.getNode(root));
+    nodes_manager.EraseNode(root);
+    while(!unconstructed_set.empty()) {
+        // Old node at first, new add node at second
+        auto selected_edge = FindEdge(constructed_set, unconstructed_set);
+        if(selected_edge.first == -1 && selected_edge.second == -1) {
+           break;
+        }
+        if(filters_and_bindings_.find(selected_edge) != filters_and_bindings_.end()) {
+            for(auto &v : filters_and_bindings_[selected_edge]) {
+                selected_filters_and_bindings_.emplace_back(std::move(v));
             }
         }
+        auto node = nodes.nodes[selected_edge.second].get();
+        node->priority = prior_flag--;
         ExecOrder.emplace_back(nodes_manager.getNode(node->Id()));
         nodes_manager.EraseNode(node->Id());
+        unconstructed_set.erase(selected_edge.second);
+        constructed_set.emplace(selected_edge.second);
     }
 }
 
@@ -207,6 +276,11 @@ void DAGManager::Small2Large(vector<LogicalOperator*> &sorted_nodes) {
     }
     for(auto &vertex : sorted_nodes) {
         ExecOrder.emplace_back(vertex);
+    }
+    for(auto v1 : filters_and_bindings_) {
+        for(auto v2 : v1.second) {
+            selected_filters_and_bindings_.emplace_back(v2);
+        }
     }
 }
 
@@ -243,18 +317,23 @@ void DAGManager::RandomRoot(vector<LogicalOperator*> &sorted_nodes) {
         ExecOrder.emplace_back(nodes_manager.getNode(node->Id()));
         nodes_manager.EraseNode(node->Id());
     }
+    for(auto v1 : filters_and_bindings_) {
+        for(auto v2 : v1.second) {
+            selected_filters_and_bindings_.emplace_back(v2);
+        }
+    }
 }
 
 void DAGManager::CreateDAG() {
     while(nodes_manager.getNodes().size() > 0) {
         auto &sorted_nodes = nodes_manager.getSortedNodes();
         LargestRoot(sorted_nodes);
-        // RandomRoot(sorted_nodes);
         nodes_manager.ReSortNodes();
     }
+    // RandomRoot(sorted_nodes);
     // Small2Large(sorted_nodes);
     nodes_manager.RecoverNodes();
-    for (auto &filter_and_binding : filters_and_bindings_) {
+    for (auto &filter_and_binding : selected_filters_and_bindings_) {
         if(filter_and_binding) {
             idx_t large;
             switch(filter_and_binding->large_.type) {
@@ -268,8 +347,7 @@ void DAGManager::CreateDAG() {
                     break;
                 }
                 case LogicalOperatorType::LOGICAL_FILTER: {
-                    LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(filter_and_binding->large_);
-                    large = get.GetTableIndex()[0];
+                    large = NodesManager::GetTableIndexinFilter(&filter_and_binding->large_);
                     break;
                 }
                 case LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY: {
@@ -292,8 +370,7 @@ void DAGManager::CreateDAG() {
                     break;
                 }
                 case LogicalOperatorType::LOGICAL_FILTER: {
-                    LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(filter_and_binding->small_);
-                    small = get.GetTableIndex()[0];
+                    small = NodesManager::GetTableIndexinFilter(&filter_and_binding->small_);
                     break;
                 }
                 case LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY: {
@@ -341,9 +418,9 @@ void DAGManager::CreateDAG() {
 vector<DAGNode*> DAGManager::GetNeighbors(idx_t node_id) {
     vector<DAGNode*> result;
     for (auto &filter_and_binding : filters_and_bindings_) {
-        if(filter_and_binding) {
-            if (&filter_and_binding->large_ == nodes_manager.getNode(node_id)) {
-                auto &op = filter_and_binding->small_;
+        for (auto & edge : filter_and_binding.second) {
+            if (&edge->large_ == nodes_manager.getNode(node_id)) {
+                auto &op = edge->small_;
                 idx_t another_node_id;
                 switch(op.type) {
                     case LogicalOperatorType::LOGICAL_GET:
@@ -356,8 +433,7 @@ vector<DAGNode*> DAGManager::GetNeighbors(idx_t node_id) {
                         break;
                     }
                     case LogicalOperatorType::LOGICAL_FILTER: {
-                        LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(op);
-                        another_node_id = get.GetTableIndex()[0];
+                        another_node_id = NodesManager::GetTableIndexinFilter(&op);
                         break;
                     }
                     case LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY: {
@@ -369,8 +445,8 @@ vector<DAGNode*> DAGManager::GetNeighbors(idx_t node_id) {
                     }
                 }
                 result.emplace_back(nodes.nodes[another_node_id].get());
-            } else if(&filter_and_binding->small_ == nodes_manager.getNode(node_id)) {
-                auto &op = filter_and_binding->large_;
+            } else if(&edge->small_ == nodes_manager.getNode(node_id)) {
+                auto &op = edge->large_;
                 idx_t another_node_id;
                 switch(op.type) {
                     case LogicalOperatorType::LOGICAL_GET:
@@ -383,8 +459,7 @@ vector<DAGNode*> DAGManager::GetNeighbors(idx_t node_id) {
                         break;
                     }
                     case LogicalOperatorType::LOGICAL_FILTER: {
-                        LogicalGet &get = PredicateTransferOptimizer::LogicalGetinFilter(op);
-                        another_node_id = get.GetTableIndex()[0];
+                        another_node_id = NodesManager::GetTableIndexinFilter(&op);
                         break;
                     }
                     case LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY: {

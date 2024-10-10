@@ -195,6 +195,12 @@ public:
   static constexpr int64_t kNumBlocksUsedBy32Bit = 1 << kNumBitsBlocksUsedBy32Bit;
   static constexpr int64_t kMaxNumRowsFor32Bit = kNumBlocksUsedBy32Bit * 64 / kMinNumBitsPerKey;
   
+  // The columns applied this BF
+  vector<ColumnBinding> column_bindings_applied_;
+  
+  // The columns build this BF
+  vector<ColumnBinding> column_bindings_built_;
+
   vector<idx_t> BoundColsApplied;
 
   vector<idx_t> BoundColsBuilt;
@@ -268,12 +274,6 @@ private:
 
   static BloomFilterMasks masks_;
   
-  // The columns applied this BF
-  vector<ColumnBinding> column_bindings_applied_;
-  
-  // The columns build this BF
-  vector<ColumnBinding> column_bindings_built_;
-
   // Used when receiving bloom filters from other nodes, where
   // the same masks should be used instead of the static one.
   std::shared_ptr<BloomFilterMasks> private_masks_;

@@ -86,6 +86,11 @@ void CompressedMaterialization::CompressInternal(unique_ptr<LogicalOperator> &op
 		return;
 	}
 
+	//TODO: make this clever
+	if (op->type == LogicalOperatorType::LOGICAL_CREATE_BF || op->type == LogicalOperatorType::LOGICAL_USE_BF) {
+		return;
+	}
+
 	for (auto &child : op->children) {
 		CompressInternal(child);
 	}

@@ -17,14 +17,16 @@ idx_t NodesManager::NumNodes() {
     return nodes.size();
 }
 
-LogicalGet& LogicalGetinFilter(LogicalOperator *op) {
+column_t NodesManager::GetTableIndexinFilter(LogicalOperator *op) {
 	if (op->children[0]->type == LogicalOperatorType::LOGICAL_GET) {
-		return op->children[0]->Cast<LogicalGet>();
+		return op->children[0]->Cast<LogicalGet>().GetTableIndex()[0];
 	} else if (op->children[0]->type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN) {
 		// For In-Clause optimization
-		return op->children[0]->children[0]->Cast<LogicalGet>();
+		return op->children[0]->children[0]->Cast<LogicalGet>().GetTableIndex()[0];
+	} else if (op->children[0]->type == LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY) {
+		return op->children[0]->Cast<LogicalAggregate>().GetTableIndex()[0];
 	} else {
-		return op->Cast<LogicalGet>();
+		return op->Cast<LogicalGet>().GetTableIndex()[0];
 	}
 }
 
@@ -41,6 +43,7 @@ ColumnBinding NodesManager::FindRename(ColumnBinding col) {
 }
 
 void NodesManager::AddNode(LogicalOperator *op) {
+	op->estimated_cardinality = op->EstimateCardinality(context);
 	switch(op->type) {
 		case LogicalOperatorType::LOGICAL_GET:
 		case LogicalOperatorType::LOGICAL_DELIM_GET:
@@ -52,8 +55,8 @@ void NodesManager::AddNode(LogicalOperator *op) {
 			break;
 		}
 		case LogicalOperatorType::LOGICAL_FILTER: {
-			LogicalGet &children = LogicalGetinFilter(op);
-			nodes[children.GetTableIndex()[0]] = op;
+			column_t children = GetTableIndexinFilter(op);
+			nodes[children] = op;
 			break;
 		}
 		case LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY: {
@@ -106,7 +109,8 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 	vector<reference<LogicalOperator>> datasource_filters;
     while (op->children.size() == 1 && !OperatorNeedsRelation(op->type)) {
 		if (op->type == LogicalOperatorType::LOGICAL_FILTER) {
-			if (op->children[0]->type == LogicalOperatorType::LOGICAL_GET) {
+			if (op->children[0]->type == LogicalOperatorType::LOGICAL_GET
+			|| op->children[0]->type == LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY) {
 				AddNode(op);
 				return;
 			} else {
@@ -146,8 +150,7 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 		if (agg.groups.empty() && agg.grouping_sets.size() <= 1) {
 			// optimize children
 			RelationStats child_stats;
-			PredicateTransferOptimizer optimizer(context);
-			op->children[0] = optimizer.Optimize(std::move(op->children[0]), &child_stats);
+			ExtractNodes(*op->children[0], filter_operators);
 			AddNode(op);
 		} else {
 			for (int i = 0; i < agg.groups.size(); i++) {
@@ -163,10 +166,8 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 	}
 	case LogicalOperatorType::LOGICAL_WINDOW: {
 		// optimize children
-		RelationStats child_stats;
-		PredicateTransferOptimizer optimizer(context);
-		op->children[0] = optimizer.Optimize(std::move(op->children[0]), &child_stats);
 		AddNode(op);
+		ExtractNodes(*op->children[0], filter_operators);
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_COMPARISON_JOIN:
@@ -174,17 +175,8 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 	case LogicalOperatorType::LOGICAL_CROSS_PRODUCT:
 	case LogicalOperatorType::LOGICAL_ANY_JOIN:
 	case LogicalOperatorType::LOGICAL_ASOF_JOIN: {
-		// if (join_connected) {
-		// Adding relations to the current join order optimizer
 		ExtractNodes(*op->children[0], filter_operators);
 		ExtractNodes(*op->children[1], filter_operators);
-		// } else {
-		// 	for(int i = 0; i < op->children.size(); i++) {
-		// 		RelationStats child_stats;
-		// 		PredicateTransferOptimizer optimizer(context);
-		// 		op->children[i] = optimizer.Optimize(std::move(op->children[i]), &child_stats);
-		// 	}
-		// }
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_DUMMY_SCAN: {
@@ -230,19 +222,13 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 	case LogicalOperatorType::LOGICAL_UNION:
 	case LogicalOperatorType::LOGICAL_EXCEPT:
 	case LogicalOperatorType::LOGICAL_INTERSECT: {
-		for (int i = 0; i < op->children.size(); i++) {
-			RelationStats child_stats;
-			PredicateTransferOptimizer optimizer(context);
-			op->children[i] = optimizer.Optimize(std::move(op->children[i]), &child_stats);
-		}
 		AddNode(op);
+		ExtractNodes(*op->children[0], filter_operators);
 		return;
 	}
 	default:
 		for (int i = 0; i < op->children.size(); i++) {
-			RelationStats child_stats;
-			PredicateTransferOptimizer optimizer(context);
-			op->children[i] = optimizer.Optimize(std::move(op->children[i]), &child_stats);
+			ExtractNodes(*op->children[i], filter_operators);
 		}
 		return;
 	}

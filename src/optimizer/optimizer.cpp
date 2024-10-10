@@ -115,6 +115,11 @@ unique_ptr<LogicalOperator> Optimizer::Optimize(unique_ptr<LogicalOperator> plan
 		plan = deliminator.Optimize(std::move(plan));
 	});
 
+	// then we start the first phase of predicate transfer optimization,
+	// building the transfer graph
+	PredicateTransferOptimizer PT(context);
+	plan = PT.PreOptimize(std::move(plan));
+
 	// then we perform the join ordering optimization
 	// this also rewrites cross products + filters into joins and performs filter pushdowns
 	// auto start = std::chrono::high_resolution_clock::now();
@@ -122,13 +127,8 @@ unique_ptr<LogicalOperator> Optimizer::Optimize(unique_ptr<LogicalOperator> plan
 		JoinOrderOptimizer optimizer(context);
 		plan = optimizer.Optimize(std::move(plan));
 	});
-	/*
-	auto end = std::chrono::high_resolution_clock::now();
-	std::chrono::duration<double> elapsed = end - start;
-	FILE* fp = fopen("jo_optimizer.txt", "a+");
-	fprintf(fp, "%lf\n", elapsed);
-	fclose(fp);
-	*/
+
+	plan = PT.Optimize(std::move(plan));
 
 	// rewrites UNNESTs in DelimJoins by moving them to the projection
 	RunOptimizer(OptimizerType::UNNEST_REWRITER, [&]() {
@@ -142,20 +142,6 @@ unique_ptr<LogicalOperator> Optimizer::Optimize(unique_ptr<LogicalOperator> plan
 		unused.VisitOperator(*plan);
 	});
 
-	// then we perform the predicate transfer optimization
-	// start = std::chrono::high_resolution_clock::now();
-	RunOptimizer(OptimizerType::PREDICATE_TRANSFER, [&]() {
-	 	PredicateTransferOptimizer optimizer(context);
-	 	plan = optimizer.Optimize(std::move(plan));
-	});
-
-    /*
-	end = std::chrono::high_resolution_clock::now();
-    elapsed = end - start;
-    fp = fopen("pt_optimizer.txt", "a+");
-	fprintf(fp, "%lf\n", elapsed);
-	fclose(fp);
-	*/
 	RunOptimizer(OptimizerType::IN_CLAUSE, [&]() {
 		InClauseRewriter ic_rewriter(context, *this);
 		plan = ic_rewriter.Rewrite(std::move(plan));
