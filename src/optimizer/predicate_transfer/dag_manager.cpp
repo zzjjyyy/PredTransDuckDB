@@ -212,6 +212,34 @@ pair<int, int> DAGManager::FindEdge(unordered_set<int> &constructed_set, unorder
     return result;
 }
 
+pair<int, int> DAGManager::FindEdgeRandom(unordered_set<int> &constructed_set,
+                                          unordered_set<int> &unconstructed_set,
+                                          std::uniform_int_distribution<idx_t> &dist) {
+    idx_t max_weight = 0;
+    idx_t max_card = 0;
+    auto result = make_pair(-1, -1);
+    for (int i : unconstructed_set) {
+        for (int j : constructed_set) {
+            auto key = make_pair(j, i);
+            if (filters_and_bindings_.find(key) != filters_and_bindings_.end()) {
+                auto card = dist(g);
+                auto weight = filters_and_bindings_[key].size();
+                if (weight > max_weight) {
+                    max_weight = weight;
+                    max_card = card;
+                    result = key;
+                } else if (weight == max_weight) {
+                    if(card > max_card) {
+                        max_card = card;
+                        result = key;
+                    }
+                }
+            }
+        }
+    }
+    return result;
+}
+
 void DAGManager::LargestRoot(vector<LogicalOperator*> &sorted_nodes) {
     unordered_set<int> constructed_set;
     unordered_set<int> unconstructed_set;
@@ -285,42 +313,46 @@ void DAGManager::Small2Large(vector<LogicalOperator*> &sorted_nodes) {
 }
 
 void DAGManager::RandomRoot(vector<LogicalOperator*> &sorted_nodes) {
-    std::priority_queue<DAGNode*, vector<DAGNode*>, DAGNodeCompare> list;
-    unordered_set<idx_t> met;
-    std::uniform_int_distribution<int> dist_1(0, nodes_manager.NumNodes() - 1);
-    std::uniform_int_distribution<idx_t> dist_2(0, 99999999999);
-	int root_id = dist_1(g);
+    unordered_set<int> constructed_set;
+    unordered_set<int> unconstructed_set;
+    std::uniform_int_distribution<idx_t> dist(0, 99999999999);
+    int prior_flag = nodes_manager.NumNodes() - 1;
+    int root = -1;
     // Create Vertices
     for(auto &vertex : nodes_manager.getNodes()) {
         // Set the last operator as root
-        if (vertex.second == sorted_nodes[root_id]) {
-            auto node = make_uniq<DAGNode>(vertex.first, dist_2(g), true);
-            list.push(node.get());
-            met.emplace(node->Id());
+        if(vertex.second == sorted_nodes.back()) {
+            auto node = make_uniq<DAGNode>(vertex.first, vertex.second->estimated_cardinality, true);
+            node->priority = prior_flag--;
+            constructed_set.emplace(vertex.first);
             nodes.nodes[vertex.first] = std::move(node);
+            root = vertex.first;
         } else {
-            nodes.nodes[vertex.first] = make_uniq<DAGNode>(vertex.first, dist_2(g), false);
+            auto node = make_uniq<DAGNode>(vertex.first, vertex.second->estimated_cardinality, false);
+            unconstructed_set.emplace(vertex.first);
+            nodes.nodes[vertex.first] = std::move(node);
         }
     }
-    int prior_flag = nodes_manager.NumNodes() - 1;
-    while(!list.empty()) {
-        auto node = list.top();
-        list.pop();
-        node->priority = prior_flag--;
-        auto neighbors = GetNeighbors(node->Id());
-        for(auto i : neighbors) {
-            if (met.find(i->Id()) == met.end()) {
-                list.push(i);
-                met.emplace(i->Id());
+    // delete root
+    ExecOrder.emplace_back(nodes_manager.getNode(root));
+    nodes_manager.EraseNode(root);
+    while(!unconstructed_set.empty()) {
+        // Old node at first, new add node at second
+        auto selected_edge = FindEdgeRandom(constructed_set, unconstructed_set, dist);
+        if(selected_edge.first == -1 && selected_edge.second == -1) {
+           break;
+        }
+        if(filters_and_bindings_.find(selected_edge) != filters_and_bindings_.end()) {
+            for(auto &v : filters_and_bindings_[selected_edge]) {
+                selected_filters_and_bindings_.emplace_back(std::move(v));
             }
         }
+        auto node = nodes.nodes[selected_edge.second].get();
+        node->priority = prior_flag--;
         ExecOrder.emplace_back(nodes_manager.getNode(node->Id()));
         nodes_manager.EraseNode(node->Id());
-    }
-    for(auto v1 : filters_and_bindings_) {
-        for(auto v2 : v1.second) {
-            selected_filters_and_bindings_.emplace_back(v2);
-        }
+        unconstructed_set.erase(selected_edge.second);
+        constructed_set.emplace(selected_edge.second);
     }
 }
 
@@ -328,9 +360,9 @@ void DAGManager::CreateDAG() {
     while(nodes_manager.getNodes().size() > 0) {
         auto &sorted_nodes = nodes_manager.getSortedNodes();
         LargestRoot(sorted_nodes);
+        // RandomRoot(sorted_nodes);
         nodes_manager.ReSortNodes();
     }
-    // RandomRoot(sorted_nodes);
     // Small2Large(sorted_nodes);
     nodes_manager.RecoverNodes();
     for (auto &filter_and_binding : selected_filters_and_bindings_) {
