@@ -291,6 +291,7 @@ void RemoveUnusedColumns::VisitOperator(LogicalOperator &op) {
 		}
 		break;
 	}
+	// Comment the below code for TPC-H Q21 to decrease the scanning time of lineitem(s)
 	case LogicalOperatorType::LOGICAL_CREATE_BF:
 	case LogicalOperatorType::LOGICAL_USE_BF: {
 		// TODO: we can do something more clever here
