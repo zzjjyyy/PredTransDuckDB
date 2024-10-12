@@ -81,6 +81,8 @@ private:
 
     pair<int, int> FindEdge(unordered_set<int> &constructed_set, unordered_set<int> &unconstructed_set);
 
+    pair<int, int> FindEdgeRandom(unordered_set<int> &constructed_set, unordered_set<int> &unconstructed_set, std::uniform_int_distribution<idx_t> &dist);
+
     vector<DAGNode*> GetNeighbors(idx_t node_id);
 
     void AddEdge(DAGNode &node, vector<DAGEdgeInfo*> &neighbors);
