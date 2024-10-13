@@ -1,0 +1,1 @@
+CREATE TEMP TABLE cc AS SELECT * FROM call_center; CREATE TEMP TABLE cr AS SELECT * FROM catalog_returns; CREATE TEMP TABLE d AS SELECT * FROM date_dim; CREATE TEMP TABLE c AS SELECT * FROM customer; CREATE TEMP TABLE ca AS SELECT * FROM customer_address; CREATE TEMP TABLE cd AS SELECT * FROM customer_demographics; CREATE TEMP TABLE hd AS SELECT * FROM household_demographics;

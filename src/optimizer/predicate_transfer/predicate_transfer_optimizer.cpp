@@ -230,7 +230,7 @@ void PredicateTransferOptimizer::GetAllBFCreate(idx_t cur, vector<shared_ptr<Blo
 			if (cur_filter->column_bindings_built_.size() != 0) {
 				temp_result_to_create.emplace_back(cur_filter);
 			} else {
-				throw InternalException("No bound colmun found!");
+				throw InternalException("No colmun binding found!");
 			}
 		}
 	} else {

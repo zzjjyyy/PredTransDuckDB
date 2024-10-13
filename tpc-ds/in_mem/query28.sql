@@ -1,0 +1,1 @@
+CREATE TEMP TABLE ss AS SELECT * FROM store_sales;

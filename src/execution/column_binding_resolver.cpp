@@ -161,6 +161,9 @@ void ColumnBindingResolver::VisitOperator(LogicalOperator &op) {
 					}
 				}
 			}
+			if(bf->BoundColsApplied.size() == 0) {
+				throw InternalException("No bound colmun found!");
+			}
 		}
 		bindings = op.GetColumnBindings();
 		return;
