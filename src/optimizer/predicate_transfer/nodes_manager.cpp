@@ -112,7 +112,6 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 			if (op->children[0]->type == LogicalOperatorType::LOGICAL_GET
 			|| op->children[0]->type == LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY) {
 				AddNode(op);
-				return;
 			} else {
 				ExtractNodes(*op->children[0], filter_operators);
 				return;
