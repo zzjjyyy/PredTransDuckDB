@@ -6,4 +6,4 @@ WHERE inv_date_sk = d_date_sk
       AND d_month_seq BETWEEN 1205 AND 1205 + 11 
 GROUP BY rollup( i_product_name, i_brand, i_class, i_category) 
 ORDER BY qoh, i_product_name, i_brand, i_class, i_category
-LIMIT 100; 
+LIMIT 100;

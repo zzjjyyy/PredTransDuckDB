@@ -16,32 +16,27 @@ SELECT ca_state,
        Stddev_samp(cd_dep_college_count), 
        Avg(cd_dep_college_count), 
        Max(cd_dep_college_count) 
-FROM   c, 
-       ca, 
-       cd 
-WHERE  c.c_current_addr_sk = ca.ca_address_sk 
-       AND cd_demo_sk = c.c_current_cdemo_sk 
-       AND EXISTS (SELECT * 
-                   FROM   ss, 
-                          d 
-                   WHERE  c.c_customer_sk = ss_customer_sk 
-                          AND ss_sold_date_sk = d_date_sk 
+FROM c, ca, cd 
+WHERE c.c_current_addr_sk = ca.ca_address_sk 
+      AND cd_demo_sk = c.c_current_cdemo_sk 
+      AND EXISTS (SELECT * 
+                  FROM ss, d 
+                  WHERE c.c_customer_sk = ss_customer_sk 
+                        AND ss_sold_date_sk = d_date_sk 
+                        AND d_year = 2001 
+                        AND d_qoy < 4) 
+       AND (EXISTS (SELECT * 
+                    FROM ws, d 
+                    WHERE c.c_customer_sk = ws_bill_customer_sk 
+                          AND ws_sold_date_sk = d_date_sk 
                           AND d_year = 2001 
                           AND d_qoy < 4) 
-       AND ( EXISTS (SELECT * 
-                     FROM   ws, 
-                            d 
-                     WHERE  c.c_customer_sk = ws_bill_customer_sk 
-                            AND ws_sold_date_sk = d_date_sk 
-                            AND d_year = 2001 
-                            AND d_qoy < 4) 
-              OR EXISTS (SELECT * 
-                         FROM   cs, 
-                                d 
-                         WHERE  c.c_customer_sk = cs_ship_customer_sk 
-                                AND cs_sold_date_sk = d_date_sk 
-                                AND d_year = 2001 
-                                AND d_qoy < 4) ) 
+            OR EXISTS (SELECT * 
+                       FROM cs, d 
+                       WHERE c.c_customer_sk = cs_ship_customer_sk 
+                             AND cs_sold_date_sk = d_date_sk 
+                             AND d_year = 2001 
+                             AND d_qoy < 4)) 
 GROUP  BY ca_state, 
           cd_gender, 
           cd_marital_status, 
@@ -54,4 +49,4 @@ ORDER  BY ca_state,
           cd_dep_count, 
           cd_dep_employed_count, 
           cd_dep_college_count
-LIMIT 100; 
+LIMIT 100;

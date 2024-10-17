@@ -29,4 +29,3 @@ AND      NOT EXISTS
                 WHERE  cs1.cs_order_number = cr1.cr_order_number) 
 ORDER BY count(DISTINCT cs_order_number) 
 LIMIT 100;
-

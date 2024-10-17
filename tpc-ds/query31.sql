@@ -3,33 +3,25 @@ WITH ssCTE
                 d_qoy, 
                 d_year, 
                 Sum(ss_ext_sales_price) AS store_sales 
-         FROM   ss, 
-                d, 
-                ca 
+         FROM ss, d, ca 
          WHERE  ss_sold_date_sk = d_date_sk 
                 AND ss_addr_sk = ca_address_sk 
-         GROUP  BY ca_county, 
-                   d_qoy, 
-                   d_year), 
+         GROUP  BY ca_county, d_qoy, d_year), 
      wsCTE 
      AS (SELECT ca_county, 
                 d_qoy, 
                 d_year, 
                 Sum(ws_ext_sales_price) AS web_sales 
-         FROM   ws, 
-                d, 
-                ca 
+         FROM   ws, d, ca 
          WHERE  ws_sold_date_sk = d_date_sk 
                 AND ws_bill_addr_sk = ca_address_sk 
-         GROUP  BY ca_county, 
-                   d_qoy, 
-                   d_year) 
+         GROUP  BY ca_county, d_qoy, d_year) 
 SELECT ss1.ca_county, 
        ss1.d_year, 
-       ws2.web_sales / ws1.web_sales     web_q1_q2_increase, 
-       ss2.store_sales / ss1.store_sales store_q1_q2_increase, 
-       ws3.web_sales / ws2.web_sales     web_q2_q3_increase, 
-       ss3.store_sales / ss2.store_sales store_q2_q3_increase 
+       ws2.web_sales / ws1.web_sales AS web_q1_q2_increase, 
+       ss2.store_sales / ss1.store_sales AS store_q1_q2_increase, 
+       ws3.web_sales / ws2.web_sales AS web_q2_q3_increase, 
+       ss3.store_sales / ss2.store_sales AS store_q2_q3_increase 
 FROM   ssCTE ss1, 
        ssCTE ss2, 
        ssCTE ss3, 
@@ -69,4 +61,4 @@ WHERE  ss1.d_qoy = 1
                    ss3.store_sales / ss2.store_sales 
                    ELSE NULL 
                  END 
-ORDER  BY ss1.d_year; 
+ORDER  BY ss1.d_year;

@@ -26,4 +26,3 @@ ORDER BY i_category ,
          i_item_desc , 
          revenueratio 
 LIMIT 100; 
-

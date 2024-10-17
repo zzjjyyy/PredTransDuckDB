@@ -1,4 +1,10 @@
-SELECT i_item_id, i_item_desc, s_store_id, s_store_name, Avg(ss_quantity) AS store_sales_quantity, Avg(sr_return_quantity) AS store_returns_quantity, Avg(cs_quantity) AS catalog_sales_quantity 
+SELECT i_item_id,
+       i_item_desc,
+       s_store_id,
+       s_store_name,
+       Avg(ss_quantity) AS store_sales_quantity,
+       Avg(sr_return_quantity) AS store_returns_quantity,
+       Avg(cs_quantity) AS catalog_sales_quantity 
 FROM ss, sr, cs, d1, d2, d3, s, i 
 WHERE d1.d_moy = 4 
       AND d1.d_year = 1998 
