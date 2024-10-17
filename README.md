@@ -1,13 +1,13 @@
-## About PredicateTransfer
+# About PredicateTransfer
 We integrate Predicate Transfer into DuckDB, when you finish installing DuckDB, you already have Predicate Transfer in it.
 You can find the code of Predicate Transfer in src/optimizer/predicate_tranasfer. The interface of Predicate Transfer can be found at optimizer.cpp at line 120-121, 131.
-# Requirement
+## Requirement
 Arrow 16.0 for Bloom filter implementation
-# Join Order Robustness
+## Join Order Robustness
 We use random join order generators in join_order_optimizer.cpp: SolveJoinOrderRandom(), SolveJoinOrderLeftDeepRandom(). Note that when you want to generate the random join order, comment the line 71 in join_order_optimizer.cpp.
 
-## About DuckDB
+# About DuckDB
 DuckDB is a high-performance analytical database system. It is designed to be fast, reliable, portable, and easy to use. DuckDB provides a rich SQL dialect, with support far beyond basic SQL. DuckDB supports arbitrary and nested correlated subqueries, window functions, collations, complex types (arrays, structs), and more. For more information on using DuckDB, please refer to the [DuckDB documentation](https://duckdb.org/docs/).
 
-## Installation
+# Installation
 If you want to install and use DuckDB, please see [our website](https://www.duckdb.org) for installation and usage instructions.
