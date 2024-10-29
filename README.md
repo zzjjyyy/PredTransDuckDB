@@ -13,11 +13,15 @@ We test TPC-H, JOB, and TPC-DS. The queries we use can be found in TPCH.sql, JOB
 DuckDB is a high-performance analytical database system. It is designed to be fast, reliable, portable, and easy to use. DuckDB provides a rich SQL dialect, with support far beyond basic SQL. DuckDB supports arbitrary and nested correlated subqueries, window functions, collations, complex types (arrays, structs), and more. For more information on using DuckDB, please refer to the [DuckDB documentation](https://duckdb.org/docs/).
 
 # Installation
-First, use cmake
+First, download the project and enter the root directory
+```
+cd PredTransDuckDB
+```
+Then, use cmake
 ```
 cmake -B build -S .
 ```
-Then, build the project in ./build
+At last, build the project in ./build
 ```
 cd build
 cmake --build .
