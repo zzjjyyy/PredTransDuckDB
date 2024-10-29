@@ -1,5 +1,5 @@
-# About PredicateTransfer
-We integrate Predicate Transfer into DuckDB, when you finish installing DuckDB, you already have Predicate Transfer in it.
+# About Robust Predicate Transfer
+We integrate Robust Predicate Transfer into DuckDB, when you finish installing DuckDB, you already have Predicate Transfer in it.
 You can find the code of Predicate Transfer in src/optimizer/predicate_tranasfer. The interface of Predicate Transfer can be found at optimizer.cpp at line 120-121, 131.
 ## Requirement
 Arrow 16.0 for Bloom filter implementation
