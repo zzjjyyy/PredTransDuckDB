@@ -29,7 +29,10 @@ Arrow 16.0 for Bloom filter implementation
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; src/optimizer/predicate_transfer/predicate_transfer_optimizer.cpp: Insert LogicalBF operators into the logical plan  
     
 ## Join Order Robustness
-We use random join order generators in join_order_optimizer.cpp: SolveJoinOrderRandom(), SolveJoinOrderLeftDeepRandom(). Note that when you want to generate the random join order, comment the line 71 in join_order_optimizer.cpp.
+We use random join order generators in join_order_optimizer.cpp:  
+&nbsp;&nbsp;&nbsp;&nbsp; SolveJoinOrderRandom()  
+&nbsp;&nbsp;&nbsp;&nbsp; SolveJoinOrderLeftDeepRandom().  
+Note that when you want to generate the random join order, comment the line 71 in join_order_optimizer.cpp.
 
 # Benchmark
 We test TPC-H, JOB, and TPC-DS. The queries we use can be found in TPCH.sql, JOB_temp.sql, and ./TPCDS.
