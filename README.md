@@ -18,7 +18,7 @@ Arrow 16.0 for Bloom filter implementation
   > src/execution/physical_plan/plan_create_bf.cpp  
   > src/execution/physical_plan/plan_use_bf.cpp  
 ### Predicate Transfer Optimizer
-  > src/optimizer/predicate_transfer
+  > src/optimizer/predicate_transfer  
     >> --src/optimizer/predicate_transfer/bloom_filter: Bloom filter implementation  
     >>>  --src/optimizer/predicate_transfer/bloom_filter/bloom_filter_avx2.cpp: Bloom filter AVX2 version  
     >>>  --src/optimizer/predicate_transfer/bloom_filter/bloom_filter_use_kernel.cpp: Bloom filter probe interface  
