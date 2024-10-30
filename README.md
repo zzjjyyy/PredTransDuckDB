@@ -5,10 +5,10 @@ You can find the code of Predicate Transfer in src/optimizer/predicate_tranasfer
 Arrow 16.0 for Bloom filter implementation
 ## Code Structure
 ### LogicalBF operators
-  src/include/duckdb/planner/operator/logical_create_bf.hpp  
-  src/planner/operator/logical_create_bf.cpp  
-  src/include/duckdb/planner/operator/logical_use_bf.hpp  
-  src/planner/operator/logical_use_bf.cpp  
+  > src/include/duckdb/planner/operator/logical_create_bf.hpp  
+  > src/planner/operator/logical_create_bf.cpp  
+  > src/include/duckdb/planner/operator/logical_use_bf.hpp  
+  > src/planner/operator/logical_use_bf.cpp  
 ### PhysicalBF operators
   src/include/duckdb/execution/operator/persistent/physical_create_bf.hpp  
   src/execution/operator/persistent/physical_create_bf.cpp  
