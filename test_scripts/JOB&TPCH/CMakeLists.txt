@@ -7,5 +7,5 @@ include_directories(../PredTransDuckDB/src/include) # You may have to chage the 
 include_directories(../PredTransDuckDB/third_party/pcg)
 link_directories(../PredTransDuckDB/src)
 
-add_executable(JOB main.cpp)
-target_link_libraries(JOB duckdb)
+add_executable(test main.cpp)
+target_link_libraries(test duckdb)
