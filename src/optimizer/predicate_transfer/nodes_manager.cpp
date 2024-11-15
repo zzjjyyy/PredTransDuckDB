@@ -109,8 +109,11 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 	vector<reference<LogicalOperator>> datasource_filters;
     while (op->children.size() == 1 && !OperatorNeedsRelation(op->type)) {
 		if (op->type == LogicalOperatorType::LOGICAL_FILTER) {
-			if (op->children[0]->type == LogicalOperatorType::LOGICAL_GET
-			|| op->children[0]->type == LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY) {
+			if (op->children[0]->type == LogicalOperatorType::LOGICAL_GET) {
+				AddNode(op);
+				return;
+			}
+			else if(op->children[0]->type == LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY) {
 				AddNode(op);
 			} else {
 				ExtractNodes(*op->children[0], filter_operators);
