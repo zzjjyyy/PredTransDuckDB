@@ -17,7 +17,7 @@ idx_t NodesManager::NumNodes() {
     return nodes.size();
 }
 
-column_t NodesManager::GetTableIndexinFilter(LogicalOperator *op) {
+idx_t NodesManager::GetTableIndexinFilter(LogicalOperator *op) {
 	if (op->children[0]->type == LogicalOperatorType::LOGICAL_GET) {
 		return op->children[0]->Cast<LogicalGet>().GetTableIndex()[0];
 	} else if (op->children[0]->type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN) {
@@ -51,16 +51,24 @@ void NodesManager::AddNode(LogicalOperator *op) {
 		case LogicalOperatorType::LOGICAL_UNION:
 		case LogicalOperatorType::LOGICAL_EXCEPT:
 		case LogicalOperatorType::LOGICAL_INTERSECT: {
-			nodes[op->GetTableIndex()[0]] = op;
+			auto id = op->GetTableIndex()[0];
+			if (nodes.find(id) == nodes.end()) {
+				nodes[id] = op;
+			}
 			break;
 		}
 		case LogicalOperatorType::LOGICAL_FILTER: {
-			column_t children = GetTableIndexinFilter(op);
-			nodes[children] = op;
+			auto id = GetTableIndexinFilter(op);
+			if (nodes.find(id) == nodes.end()) {
+				nodes[id] = op;
+			}
 			break;
 		}
 		case LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY: {
-			nodes[op->GetTableIndex()[1]] = op;
+			auto id = op->GetTableIndex()[1];
+			if (nodes.find(id) == nodes.end()) {
+				nodes[id] = op;
+			}
 			break;
 		}
 		default: {

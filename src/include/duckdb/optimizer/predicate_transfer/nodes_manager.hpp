@@ -79,6 +79,6 @@ private:
 	unordered_map<ColumnBinding, ColumnBinding, HashFunc, CmpFunc> rename_cols;
 
 public:
-	static column_t GetTableIndexinFilter(LogicalOperator *op);
+	static idx_t GetTableIndexinFilter(LogicalOperator *op);
 };
 }
