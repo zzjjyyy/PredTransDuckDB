@@ -118,6 +118,9 @@ public:
 				for(int i = 1; i < cols.size(); i++) {
 					VectorOperations::CombineHash(hashes, chunk.data[cols[i]], chunk.size());
 				}
+				if(hashes.GetVectorType() == VectorType::CONSTANT_VECTOR) {
+					hashes.Flatten(chunk.size());
+				}
 				builder->PushNextBatch(thread_id, chunk.size(), (hash_t*)hashes.GetData());
 #endif
 			}
