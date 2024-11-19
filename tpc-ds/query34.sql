@@ -24,4 +24,4 @@ FROM (SELECT ss_ticket_number,
         GROUP  BY ss_ticket_number, ss_customer_sk) dn, c
 WHERE ss_customer_sk = c_customer_sk 
       AND cnt BETWEEN 15 AND 20
-ORDER BY c_last_name, c_first_name, c_salutation, c_preferred_cust_flag DESC; 
+ORDER BY c_last_name, c_first_name, c_salutation, c_preferred_cust_flag DESC;
