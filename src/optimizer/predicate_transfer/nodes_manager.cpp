@@ -111,6 +111,8 @@ void NodesManager::EraseNode(idx_t key) {
 	auto itr = nodes.erase(key);
 }
 
+bool can_add_mark = true;
+
 /* Extract All the vertex nodes */
 void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalOperator>> &filter_operators) {
     LogicalOperator *op = &plan;
@@ -121,10 +123,15 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 				AddNode(op);
 				return;
 			}
-			// else if(op->children[0]->type == LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY) {
-			// 	AddNode(op);
-			// }
+			else if (op->expressions[0]->type == ExpressionType::OPERATOR_NOT
+			&& op->expressions[0]->expression_class == ExpressionClass::BOUND_OPERATOR
+			&& op->children[0]->type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN) {
+				can_add_mark = false;
+				ExtractNodes(*op->children[0], filter_operators);
+				return;
+			}
 			else {
+				can_add_mark = true;
 				ExtractNodes(*op->children[0], filter_operators);
 				return;
 			}
@@ -139,21 +146,30 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 		|| join.join_type == JoinType::LEFT
 		|| join.join_type == JoinType::RIGHT
 		|| join.join_type == JoinType::SEMI
-		|| join.join_type == JoinType::RIGHT_SEMI
-		|| join.join_type == JoinType::MARK) {
+		|| join.join_type == JoinType::RIGHT_SEMI) {
 			for(auto &jc : join.conditions) {
 				if(jc.comparison == ExpressionType::COMPARE_EQUAL
 				&& jc.left->type == ExpressionType::BOUND_COLUMN_REF
 				&& jc.right->type == ExpressionType::BOUND_COLUMN_REF) {
 					filter_operators.push_back(*op);
-					// join_connected = true;
 					break;
 				}
 			}
-			
+		} else if (join.join_type == JoinType::MARK && can_add_mark) {
+			for(auto &jc : join.conditions) {
+				if(jc.comparison == ExpressionType::COMPARE_EQUAL
+				&& jc.left->type == ExpressionType::BOUND_COLUMN_REF
+				&& jc.right->type == ExpressionType::BOUND_COLUMN_REF) {
+					filter_operators.push_back(*op);
+					break;
+				}
+			}
+		}
+		if (!can_add_mark) {
+			can_add_mark = true;
 		}
 	}
-   
+    
     switch (op->type) {
 	case LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY: {
 		// TODO: Transfer Predicate through Group by columns

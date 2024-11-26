@@ -115,6 +115,8 @@ unique_ptr<LogicalOperator> Optimizer::Optimize(unique_ptr<LogicalOperator> plan
 		plan = deliminator.Optimize(std::move(plan));
 	});
 
+	// plan->Print();
+
 	// then we start the first phase of predicate transfer optimization,
 	// building the transfer graph
 	PredicateTransferOptimizer PT(context);
