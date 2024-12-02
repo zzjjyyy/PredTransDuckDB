@@ -6,6 +6,8 @@
 #include "duckdb/planner/expression/bound_columnref_expression.hpp"
 #include <queue>
 
+#include "duckdb/optimizer/predicate_transfer/setting.hpp"
+
 namespace duckdb {
 
 /* Build DAG according to the query plan */
@@ -302,8 +304,8 @@ void DAGManager::Small2Large(vector<LogicalOperator*> &sorted_nodes) {
             nodes.nodes[vertex.first]= std::move(node);
         }
     }
-    for(auto &vertex : sorted_nodes) {
-        ExecOrder.emplace_back(vertex);
+    for (int i = sorted_nodes.size() - 1; i >= 0; i--) {
+        ExecOrder.emplace_back(sorted_nodes[i]);
     }
     for(auto v1 : filters_and_bindings_) {
         for(auto v2 : v1.second) {
@@ -357,14 +359,18 @@ void DAGManager::RandomRoot(vector<LogicalOperator*> &sorted_nodes) {
 }
 
 void DAGManager::CreateDAG() {
+#ifdef SmalltoLarge
+    auto &sorted_nodes = nodes_manager.getSortedNodes();
+    Small2Large(sorted_nodes);
+#else
     while(nodes_manager.getNodes().size() > 0) {
         auto &sorted_nodes = nodes_manager.getSortedNodes();
         LargestRoot(sorted_nodes);
         // RandomRoot(sorted_nodes);
         nodes_manager.ReSortNodes();
     }
-    // Small2Large(sorted_nodes);
     nodes_manager.RecoverNodes();
+#endif
     for (auto &filter_and_binding : selected_filters_and_bindings_) {
         if(filter_and_binding) {
             idx_t large;

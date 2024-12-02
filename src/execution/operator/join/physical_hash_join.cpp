@@ -15,6 +15,10 @@
 #include "duckdb/storage/storage_manager.hpp"
 #include "duckdb/storage/temporary_memory_manager.hpp"
 
+#ifdef BloomJoin
+#include "duckdb/optimizer/predicate_transfer/bloom_filter/bloom_filter_use_kernel.hpp"
+#endif
+
 namespace duckdb {
 
 PhysicalHashJoin::PhysicalHashJoin(LogicalOperator &op, unique_ptr<PhysicalOperator> left,
@@ -99,6 +103,9 @@ public:
 		probe_types.insert(probe_types.end(), op.condition_types.begin(), op.condition_types.end());
 		probe_types.insert(probe_types.end(), payload_types.begin(), payload_types.end());
 		probe_types.emplace_back(LogicalType::HASH);
+#ifdef BloomJoin
+		bloomfilter = op.bloomfilter;
+#endif 
 	}
 
 	void ScheduleFinalize(Pipeline &pipeline, Event &event);
@@ -128,6 +135,11 @@ public:
 
 	//! Whether or not we have started scanning data using GetData
 	atomic<bool> scanned_data;
+
+#ifdef BloomJoin
+	shared_ptr<BloomFilterBuilder> builder;
+	shared_ptr<BlockedBloomFilter> bloomfilter;
+#endif
 
 	const PhysicalHashJoin &op;
 };
@@ -264,6 +276,17 @@ SinkCombineResultType PhysicalHashJoin::Combine(ExecutionContext &context, Opera
 //===--------------------------------------------------------------------===//
 // Finalize
 //===--------------------------------------------------------------------===//
+#ifdef BloomJoin
+struct SchedulerThread {
+#ifndef DUCKDB_NO_THREADS
+	explicit SchedulerThread(unique_ptr<std::thread> thread_p) : internal_thread(std::move(thread_p)) {
+	}
+
+	unique_ptr<std::thread> internal_thread;
+#endif
+};
+#endif
+
 class HashJoinFinalizeTask : public ExecutorTask {
 public:
 	HashJoinFinalizeTask(shared_ptr<Event> event_p, ClientContext &context, HashJoinGlobalSinkState &sink_p,
@@ -275,6 +298,30 @@ public:
 	TaskExecutionResult ExecuteTask(TaskExecutionMode mode) override {
 		ThreadContext tcontext(this->executor.context);
 		tcontext.profiler.StartOperator(&sink.op);
+#ifdef BloomJoin
+		Vector hashes(LogicalType::HASH);
+		auto hash_data = FlatVector::GetData<hash_t>(hashes);
+		TupleDataChunkIterator iterator(sink.hash_table->GetDataCollection(),
+										TupleDataPinProperties::KEEP_EVERYTHING_PINNED,
+										chunk_idx_from, chunk_idx_to, false);
+		const auto row_locations = iterator.GetRowLocations();
+		do {
+			const auto count = iterator.GetCurrentChunkCount();
+			for (idx_t i = 0; i < count; i++) {
+				hash_data[i] = Load<hash_t>(row_locations[i] + sink.hash_table->pointer_offset);
+			}
+			auto &threads = TaskScheduler::GetScheduler(this->executor.context).threads;
+			size_t thread_id = 0;
+			std::thread::id threadId = std::this_thread::get_id();
+			for(size_t i = 0; i < threads.size(); i++) {
+				if (threadId == threads[i]->internal_thread->get_id()) {
+					thread_id = i + 1;
+					break;
+				}
+			}
+			sink.builder->PushNextBatch(thread_id, count, hash_data);
+		} while (iterator.Next());
+#endif
 		sink.hash_table->Finalize(chunk_idx_from, chunk_idx_to, parallel);
 		tcontext.profiler.EndOperator(nullptr);
 		this->executor.Flush(tcontext);
@@ -310,6 +357,10 @@ public:
 			// Single-threaded finalize
 			finalize_tasks.push_back(
 			    make_uniq<HashJoinFinalizeTask>(shared_from_this(), context, sink, 0, chunk_count, false));
+#ifdef BloomJoin
+			sink.builder = make_shared<BloomFilterBuilder_SingleThreaded>();
+			sink.builder->Begin(1, arrow::internal::CpuInfo::AVX2, arrow::default_memory_pool(), ht.GetDataCollection().Count(), 0, sink.bloomfilter.get());
+#endif
 		} else {
 			// Parallel finalize
 			auto chunks_per_thread = MaxValue<idx_t>((chunk_count + num_threads - 1) / num_threads, 1);
@@ -325,6 +376,10 @@ public:
 					break;
 				}
 			}
+#ifdef BloomJoin
+			sink.builder = make_shared<BloomFilterBuilder_Parallel>();
+			sink.builder->Begin(num_threads, arrow::internal::CpuInfo::AVX2, arrow::default_memory_pool(), ht.GetDataCollection().Count(), 0, sink.bloomfilter.get());
+#endif
 		}
 		SetTasks(std::move(finalize_tasks));
 	}
@@ -594,6 +649,23 @@ OperatorResultType PhysicalHashJoin::ExecuteInternal(ExecutionContext &context, 
 	// resolve the join keys for the left chunk
 	state.join_keys.Reset();
 	state.probe_executor.Execute(input, state.join_keys);
+
+#ifdef BloomJoin
+	Vector hashes(LogicalType::HASH);
+	VectorOperations::Hash(state.join_keys.data[0], hashes, state.join_keys.size());
+	for (idx_t i = 1; i < sink.hash_table->equality_types.size(); i++) {
+		VectorOperations::CombineHash(hashes, state.join_keys.data[i], state.join_keys.size());
+	}
+	if (hashes.GetVectorType() == VectorType::CONSTANT_VECTOR) {
+        hashes.Flatten(state.join_keys.size());
+    }
+	idx_t result_count = 0;
+	idx_t row_num = input.size();
+	SelectionVector sel(STANDARD_VECTOR_SIZE);
+	bloomfilter->Find(arrow::internal::CpuInfo::AVX2, row_num, (hash_t*)hashes.GetData(), sel, result_count, false);
+	input.Slice(sel, result_count);
+	state.join_keys.Slice(sel, result_count);
+#endif
 
 	// perform the actual probe
 	if (sink.external) {

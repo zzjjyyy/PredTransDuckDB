@@ -15,6 +15,9 @@
 #include "duckdb/execution/physical_operator.hpp"
 #include "duckdb/planner/operator/logical_join.hpp"
 
+#include "duckdb/optimizer/predicate_transfer/setting.hpp"
+#include "duckdb/optimizer/predicate_transfer/bloom_filter/bloom_filter.hpp"
+
 namespace duckdb {
 
 //! PhysicalHashJoin represents a hash loop join between two tables
@@ -51,6 +54,11 @@ public:
 	vector<LogicalType> delim_types;
 	//! Used in perfect hash join
 	PerfectHashJoinStats perfect_join_statistics;
+
+#ifdef BloomJoin
+	shared_ptr<BloomFilterBuilder> builder;
+	shared_ptr<BlockedBloomFilter> bloomfilter = make_shared<BlockedBloomFilter>();
+#endif
 
 public:
 	// Operator Interface

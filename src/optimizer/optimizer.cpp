@@ -27,6 +27,8 @@
 #include "duckdb/planner/binder.hpp"
 #include "duckdb/planner/planner.hpp"
 
+#include "duckdb/optimizer/predicate_transfer/setting.hpp"
+
 namespace duckdb {
 
 Optimizer::Optimizer(Binder &binder, ClientContext &context) : context(context), binder(binder), rewriter(context) {
@@ -119,8 +121,10 @@ unique_ptr<LogicalOperator> Optimizer::Optimize(unique_ptr<LogicalOperator> plan
 
 	// then we start the first phase of predicate transfer optimization,
 	// building the transfer graph
+#ifdef PredicateTransfer
 	PredicateTransferOptimizer PT(context);
 	plan = PT.PreOptimize(std::move(plan));
+#endif
 
 	// then we perform the join ordering optimization
 	// this also rewrites cross products + filters into joins and performs filter pushdowns
@@ -130,7 +134,9 @@ unique_ptr<LogicalOperator> Optimizer::Optimize(unique_ptr<LogicalOperator> plan
 		plan = optimizer.Optimize(std::move(plan));
 	});
 
+#ifdef PredicateTransfer
 	plan = PT.Optimize(std::move(plan));
+#endif
 
 	// rewrites UNNESTs in DelimJoins by moving them to the projection
 	RunOptimizer(OptimizerType::UNNEST_REWRITER, [&]() {
