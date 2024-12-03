@@ -16,7 +16,9 @@
 #include "duckdb/planner/operator/logical_join.hpp"
 
 #include "duckdb/optimizer/predicate_transfer/setting.hpp"
+#ifdef BloomJoin
 #include "duckdb/optimizer/predicate_transfer/bloom_filter/bloom_filter.hpp"
+#endif
 
 namespace duckdb {
 

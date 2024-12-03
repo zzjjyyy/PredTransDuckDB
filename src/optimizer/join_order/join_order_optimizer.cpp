@@ -52,9 +52,9 @@ unique_ptr<LogicalOperator> JoinOrderOptimizer::Optimize(unique_ptr<LogicalOpera
 		// Ask the plan enumerator to enumerate a number of join orders
 #ifdef ExactLeftDeep
 		auto final_plan = plan_enumerator.SolveJoinOrderLeftDeep();
-#elif RandomBushy
+#elif defined(RandomBushy)
 		auto final_plan = plan_enumerator.SolveJoinOrderRandom();
-#elif RandomLeftDeep
+#elif defined(RandomLeftDeep)
 		auto final_plan = plan_enumerator.SolveJoinOrderLeftDeepRandom();
 #else
 		auto final_plan = plan_enumerator.SolveJoinOrder();
@@ -75,7 +75,7 @@ unique_ptr<LogicalOperator> JoinOrderOptimizer::Optimize(unique_ptr<LogicalOpera
 	// Don't check reorderability because non-reorderable joins will result in 1 relation, but we can
 	// still switch the children.
 
-#if !defined(ExactLeftDeep) || !defined(RandomBushy) || !defined(RandomLeftDeep)
+#if !defined(ExactLeftDeep) && !defined(RandomBushy) && !defined(RandomLeftDeep)
 	if (stats == nullptr && HasJoin(new_logical_plan.get())) {
 		new_logical_plan = query_graph_manager.LeftRightOptimizations(std::move(new_logical_plan));
 	}
