@@ -251,6 +251,7 @@ void NodesManager::ExtractNodes(LogicalOperator &plan, vector<reference<LogicalO
 	case LogicalOperatorType::LOGICAL_INTERSECT: {
 		AddNode(op);
 		ExtractNodes(*op->children[0], filter_operators);
+		ExtractNodes(*op->children[1], filter_operators);
 		return;
 	}
 	default:
