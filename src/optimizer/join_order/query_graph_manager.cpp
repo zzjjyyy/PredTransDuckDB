@@ -11,6 +11,8 @@
 #include "duckdb/planner/logical_operator.hpp"
 #include "duckdb/planner/operator/list.hpp"
 
+#include "duckdb/optimizer/predicate_transfer/setting.hpp"
+
 namespace duckdb {
 
 //! Returns true if A and B are disjoint, false otherwise
@@ -361,6 +363,12 @@ void QueryGraphManager::TryFlipChildren(LogicalOperator &op, idx_t cardinality_r
 	if (rhs_cardinality < lhs_cardinality * cardinality_ratio) {
 		return;
 	}
+
+#if defined(ExactLeftDeep) || defined(RandomBushy) || defined(RandomLeftDeep)
+	if (left_child->type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN || right_child->type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN) {
+		return;
+	}
+#endif
 	FlipChildren(op);
 }
 
