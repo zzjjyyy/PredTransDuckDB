@@ -557,91 +557,25 @@ unique_ptr<JoinNode> PlanEnumerator::SolveJoinOrder() {
 }
 
 unique_ptr<JoinNode> PlanEnumerator::SolveJoinOrderLeftDeep() {
-	vector<reference<JoinRelationSet>> join_relations; // T in the paper
-	for (idx_t i = 0; i < query_graph_manager.relation_manager.NumRelations(); i++) {
-		join_relations.push_back(query_graph_manager.set_manager.GetJoinRelation(i));
+	vector<vector<JoinRelationSet>> join_rels(query_graph_manager.relation_manager.NumRelations());
+	for (int i = 0; i < query_graph_manager.relation_manager.NumRelations(); i++) {
+		join_rels[0].push_back(query_graph_manager.set_manager.GetJoinRelation(i));
 	}
-	optional_ptr<JoinNode> best_left_tree = nullptr;
-	while (join_relations.size() > 0) {
-		idx_t best_left = 0, best_right = 0;
-		optional_ptr<JoinNode> best_connection;
-		int cnt = 0;
-		while (true) {
-			if (best_left_tree == nullptr) {
-				double max = 0;
-				int i = -1;
-				for(int k = 0; k < join_relations.size(); k++) {
-					auto card = cost_model.cardinality_estimator.EstimateCardinalityWithSet<double>(join_relations[k]);
-					if (card > max) {
-						i = k;
-						max = card;
+	for (int join_size = 1; join_size < query_graph_manager.relation_manager.NumRelations(); join_size++) {
+		for (int left_idx = 0; left_idx < join_rels[join_size - 1].size(); left_idx++) {
+			auto &left = join_rels[join_size - 1][left_idx];
+			for (int right_idx; right_idx < join_rels[0].size(); right_idx++) {
+				auto &right = join_rels[0][right_idx];
+				if (!JoinRelationSet::IsSubset(left, right)) {
+					auto connection = query_graph.GetConnections(left, right);
+					if (!connection.empty()) {
+						auto &node = EmitPair(left, right, connection);
+						join_rels[join_size].push_back(node.set);
+						UpdateDPTree(node);
 					}
-				}
-				double min = 1.7976931348623158e+308;
-				int j = -1;
-				for(int k = 0; k < join_relations.size(); k++) {
-					if (k == i) {
-						continue;
-					}
-					auto card = cost_model.cardinality_estimator.EstimateCardinalityWithSet<double>(join_relations[k]);
-					if (card < min) {
-						auto connection = query_graph.GetConnections(join_relations[i], join_relations[k]);
-						if (!connection.empty()) {
-							j = k;
-							min = card;
-						}
-					}
-				}
-				auto left = join_relations[i];
-				auto right = join_relations[j];
-				// check if we can connect these two relations
-				auto connection = query_graph.GetConnections(left, right);
-				if (!connection.empty()) {
-					auto &node = EmitPair(left, right, connection);
-					UpdateDPTree(node);
-					best_connection = &node;
-					best_left = i;
-					best_right = j;
-					if (best_right > best_left) {
-						join_relations.erase(join_relations.begin() + best_right);
-						join_relations.erase(join_relations.begin() + best_left);
-					} else {
-						join_relations.erase(join_relations.begin() + best_left);
-						join_relations.erase(join_relations.begin() + best_right);
-					}
-					break;
-				}
-			} else {
-				double min = 1.7976931348623158e+308;
-				int i = -1;
-				for(int k = 0; k < join_relations.size(); k++) {
-					auto card = cost_model.cardinality_estimator.EstimateCardinalityWithSet<double>(join_relations[k]);
-					if (card < min) {
-						auto connection = query_graph.GetConnections(best_left_tree->set, join_relations[k]);
-						if (!connection.empty()) {
-							i = k;
-							min = card;
-						}
-					}
-				}
-				auto right = join_relations[i];
-				// check if we can connect these two relations
-				auto connection = query_graph.GetConnections(best_left_tree->set, right);
-				if (!connection.empty()) {
-					auto &node = EmitPair(best_left_tree->set, right, connection);
-					UpdateDPTree(node);
-					best_connection = &node;
-					best_right = i;
-					join_relations.erase(join_relations.begin() + best_right);
-					break;
 				}
 			}
-			cnt++;
 		}
-		if (!best_connection) {
-			throw InvalidInputException("Query requires a cross-product");
-		}
-		best_left_tree = best_connection;
 	}
 	// now the optimal join path should have been found
 	// get it from the node
