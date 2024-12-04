@@ -557,20 +557,20 @@ unique_ptr<JoinNode> PlanEnumerator::SolveJoinOrder() {
 }
 
 unique_ptr<JoinNode> PlanEnumerator::SolveJoinOrderLeftDeep() {
-	vector<vector<JoinRelationSet>> join_rels(query_graph_manager.relation_manager.NumRelations());
+	vector<vector<JoinRelationSet*>> join_rels(query_graph_manager.relation_manager.NumRelations());
 	for (int i = 0; i < query_graph_manager.relation_manager.NumRelations(); i++) {
-		join_rels[0].push_back(query_graph_manager.set_manager.GetJoinRelation(i));
+		join_rels[0].push_back(&query_graph_manager.set_manager.GetJoinRelation(i));
 	}
 	for (int join_size = 1; join_size < query_graph_manager.relation_manager.NumRelations(); join_size++) {
 		for (int left_idx = 0; left_idx < join_rels[join_size - 1].size(); left_idx++) {
 			auto &left = join_rels[join_size - 1][left_idx];
 			for (int right_idx; right_idx < join_rels[0].size(); right_idx++) {
 				auto &right = join_rels[0][right_idx];
-				if (!JoinRelationSet::IsSubset(left, right)) {
-					auto connection = query_graph.GetConnections(left, right);
+				if (!JoinRelationSet::IsSubset(*left, *right)) {
+					auto connection = query_graph.GetConnections(*left, *right);
 					if (!connection.empty()) {
-						auto &node = EmitPair(left, right, connection);
-						join_rels[join_size].push_back(node.set);
+						auto &node = EmitPair(*left, *right, connection);
+						join_rels[join_size].push_back(&node.set);
 						UpdateDPTree(node);
 					}
 				}
