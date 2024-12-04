@@ -59,13 +59,13 @@ SELECT ss_item_sk,
        COALESCE(ws_sp, 0) + COALESCE(cs_sp, 0) AS other_chan_sales_price 
 FROM   ssCTE
        LEFT JOIN wsCTE 
-              ON ( ws_sold_year = ss_sold_year 
-                   AND ws_item_sk = ss_item_sk 
-                   AND ws_customer_sk = ss_customer_sk ) 
+              ON (ws_sold_year = ss_sold_year 
+                  AND ws_item_sk = ss_item_sk 
+                  AND ws_customer_sk = ss_customer_sk) 
        LEFT JOIN csCTE 
-              ON ( cs_sold_year = ss_sold_year 
-                   AND cs_item_sk = cs_item_sk 
-                   AND cs_customer_sk = ss_customer_sk ) 
+              ON (cs_sold_year = ss_sold_year 
+                  AND cs_item_sk = ss_item_sk 
+                  AND cs_customer_sk = ss_customer_sk) 
 WHERE  COALESCE(ws_qty, 0) > 0 
        AND COALESCE(cs_qty, 0) > 0 
        AND ss_sold_year = 1999 
