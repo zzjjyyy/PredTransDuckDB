@@ -121,6 +121,12 @@ RadixPartitionedColumnData::RadixPartitionedColumnData(const RadixPartitionedCol
 RadixPartitionedColumnData::~RadixPartitionedColumnData() {
 }
 
+void RadixPartitionedColumnData::Initialize() {
+	for (idx_t i = 0; i < RadixPartitioning::NumberOfPartitions(radix_bits); i++) {
+		partitions.emplace_back(CreatePartitionCollection(i));
+	}
+}
+
 void RadixPartitionedColumnData::InitializeAppendStateInternal(PartitionedColumnDataAppendState &state) const {
 	const auto num_partitions = RadixPartitioning::NumberOfPartitions(radix_bits);
 	state.partition_append_states.reserve(num_partitions);

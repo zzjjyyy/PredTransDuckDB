@@ -42,6 +42,19 @@ unique_ptr<DataChunk> PartitionedColumnData::CreatePartitionBuffer() const {
 	return result;
 }
 
+unique_ptr<ColumnDataCollection> PartitionedColumnData::GetUnpartitioned() {
+	auto data_collection = std::move(partitions[0]);
+	partitions[0] = make_uniq<ColumnDataCollection>(context, types);
+
+	for (idx_t i = 1; i < partitions.size(); i++) {
+		data_collection->Combine(*partitions[i]);
+	}
+
+	data_collection->Verify();
+
+	return data_collection;
+}
+
 void PartitionedColumnData::Append(PartitionedColumnDataAppendState &state, DataChunk &input) {
 	// Compute partition indices and store them in state.partition_indices
 	ComputePartitionIndices(state, input);

@@ -63,6 +63,8 @@ public:
 	RadixPartitionedColumnData(const RadixPartitionedColumnData &other);
 	~RadixPartitionedColumnData() override;
 
+	void Initialize();
+	
 	idx_t GetRadixBits() const {
 		return radix_bits;
 	}

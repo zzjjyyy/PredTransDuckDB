@@ -7,6 +7,9 @@
 #include "duckdb/common/types/batched_data_collection.hpp"
 #include "duckdb/common/types/row/tuple_data_collection.hpp"
 #include "duckdb/storage/buffer_manager.hpp"
+#include "duckdb/common/types/column/partitioned_column_data.hpp"
+#include "duckdb/common/radix_partitioning.hpp"
+#include "duckdb/storage/temporary_memory_manager.hpp"
 
 #include <sys/types.h>
 #include <thread>
@@ -26,33 +29,46 @@ PhysicalCreateBF::PhysicalCreateBF(vector<LogicalType> types, vector<shared_ptr<
 class CreateBFGlobalSinkState : public GlobalSinkState {
 public:
 	CreateBFGlobalSinkState(ClientContext &context, const PhysicalCreateBF &op)
-		: total_data(context, op.types), op(op) {}
+		: op(op), temporary_memory_state(TemporaryMemoryManager::Get(context).Register(context)) {
+			total_partitioned_data = make_uniq<RadixPartitionedColumnData>(context, op.types, 3, op.types.size() - 1);
+			total_data = make_uniq<ColumnDataCollection>(context, op.types);
+		}
 
 	void ScheduleFinalize(Pipeline &pipeline, Event &event);
 
 	mutex glock;
 	const PhysicalCreateBF &op;
-	ColumnDataCollection total_data;
+
+	unique_ptr<RadixPartitionedColumnData> total_partitioned_data;
+
+	unique_ptr<ColumnDataCollection> total_data;
 #ifdef UseHashFilter
 	vector<shared_ptr<HashFilterBuilder>> builders;
 #else
 	vector<shared_ptr<BloomFilterBuilder>> builders;
 #endif
-	vector<unique_ptr<ColumnDataCollection>> local_data_collections;
+	vector<unique_ptr<PartitionedColumnData>> local_data_collections;
+
+	unique_ptr<TemporaryMemoryState> temporary_memory_state;
+
+	bool external;
 };
 
 class CreateBFLocalSinkState : public LocalSinkState {
 public:
 	CreateBFLocalSinkState(ClientContext &context, const PhysicalCreateBF &op) {
-		local_data = make_uniq<ColumnDataCollection>(context, op.types);
+		local_data = make_uniq<RadixPartitionedColumnData>(context, op.types, 3, op.types.size() - 1);
+		local_data->Initialize();
+		local_data->InitializeAppendState(append_state);
 	}
 
-	unique_ptr<ColumnDataCollection> local_data;
+	PartitionedColumnDataAppendState append_state;
+	unique_ptr<RadixPartitionedColumnData> local_data;
 };
 
 SinkResultType PhysicalCreateBF::Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const {
 	auto &state = input.local_state.Cast<CreateBFLocalSinkState>();
-	state.local_data->Append(chunk);
+	state.local_data->Append(state.append_state, chunk);
 	return SinkResultType::NEED_MORE_INPUT;
 }
 
@@ -60,7 +76,6 @@ SinkCombineResultType PhysicalCreateBF::Combine(ExecutionContext &context,
                                          		OperatorSinkCombineInput &input) const {
 	auto &gstate = input.global_state.Cast<CreateBFGlobalSinkState>();
 	auto &state = input.local_state.Cast<CreateBFLocalSinkState>();
-
 	lock_guard<mutex> lock(gstate.glock);
 	gstate.local_data_collections.emplace_back(std::move(state.local_data));
 	return SinkCombineResultType::FINISHED;
@@ -100,8 +115,8 @@ public:
 		}
 		for(idx_t i = chunk_idx_from; i < chunk_idx_to; i++) {
 			DataChunk chunk;
-			sink.total_data.InitializeScanChunk(chunk);
-			sink.total_data.FetchChunk(i, chunk);
+			sink.total_data->InitializeScanChunk(chunk);
+			sink.total_data->FetchChunk(i, chunk);
 			for(auto &builder : sink.builders) {
 				auto cols = builder->BuiltCols();
 #ifdef UseHashFilter
@@ -163,9 +178,9 @@ public:
 
 		vector<shared_ptr<Task>> finalize_tasks;
 		auto &buffer = sink.total_data;
-		const auto chunk_count = buffer.ChunkCount();
+		const auto chunk_count = buffer->ChunkCount();
 		const idx_t num_threads = TaskScheduler::GetScheduler(context).NumberOfThreads();
-		if (num_threads == 1 || (buffer.Count() < PARALLEL_CONSTRUCT_THRESHOLD && !context.config.verify_parallelism)) {
+		if (num_threads == 1 || (buffer->Count() < PARALLEL_CONSTRUCT_THRESHOLD && !context.config.verify_parallelism)) {
 			// Single-threaded finalize
 			finalize_tasks.push_back(make_uniq<CreateBFFinalizeTask>(shared_from_this(), context, sink, 0, chunk_count, 1));
 		} else {
@@ -210,41 +225,85 @@ SinkFinalizeType PhysicalCreateBF::Finalize(Pipeline &pipeline, Event &event, Cl
 	ThreadContext tcontext(context);
 	tcontext.profiler.StartOperator(this);
 	auto &sink = input.global_state.Cast<CreateBFGlobalSinkState>();
+
+	const auto num_partitions = RadixPartitioning::NumberOfPartitions(3);
+	vector<idx_t> partition_sizes(num_partitions, 0);
+	vector<idx_t> partition_counts(num_partitions, 0);
+	for (auto &sink_collection : sink.local_data_collections) {
+		D_ASSERT(partition_sizes.size() == sink_collection->GetPartitions().size());
+		D_ASSERT(partition_sizes.size() == partition_counts.size());
+		for (idx_t i = 0; i < sink_collection->GetPartitions().size(); i++) {
+			auto &partition = *sink_collection->GetPartitions()[i];
+			partition_sizes[i] += partition.SizeInBytes();
+			partition_counts[i] += partition.Count();
+		}
+	}
+
+	idx_t total_size = 0;
+	idx_t total_count = 0;
+	idx_t max_partition_ht_size = 0;
+	idx_t max_partition_size = 0;
+	idx_t max_partition_count = 0;
+	for (idx_t i = 0; i < num_partitions; i++) {
+		total_size += partition_sizes[i];
+		total_count += partition_counts[i];
+
+		auto partition_size = partition_sizes[i];
+		if (partition_size > max_partition_ht_size) {
+			max_partition_ht_size = partition_size;
+			max_partition_size = partition_sizes[i];
+			max_partition_count = partition_counts[i];
+		}
+	}
+
+	if (total_count == 0) {
+		total_size = 0;
+	}
+
+	sink.temporary_memory_state->SetRemainingSize(context, total_size);
+
+	sink.external = sink.temporary_memory_state->GetReservation() < total_size;
 	for(auto& local_data : sink.local_data_collections) {
-		sink.total_data.Combine(*local_data);
+		sink.total_partitioned_data->Combine(*local_data);
 	}
 	sink.local_data_collections.clear();
-	int64_t num_rows = sink.total_data.Count();
-	const idx_t num_threads = TaskScheduler::GetScheduler(context).NumberOfThreads();
-	for (auto &filter : bf_to_create) {
-		if (num_threads == 1) {
+	if (sink.external) {
+		std::cout << "CreateBF external" << std::endl;
+	}
+	else {
+		sink.total_data = sink.total_partitioned_data->GetUnpartitioned();
+		int64_t num_rows = sink.total_data->Count();
+		const idx_t num_threads = TaskScheduler::GetScheduler(context).NumberOfThreads();
+		for (auto &filter : bf_to_create) {
+			if (num_threads == 1) {
 #ifdef UseHashFilter
-			auto builder = make_shared<HashFilterBuilder_SingleThreaded>();
-			auto cols = filter->BoundColsBuilt;
-			vector<LogicalType> layouts;
-			for(int i = 0; i < cols.size(); i++) {
-				layouts.emplace_back(sink.total_data.Types()[cols[i]]);
-			}
-			builder->Begin(1, arrow::internal::CpuInfo::AVX2, &BufferManager::GetBufferManager(context), layouts, 0, filter.get());
+				auto builder = make_shared<HashFilterBuilder_SingleThreaded>();
+				auto cols = filter->BoundColsBuilt;
+				vector<LogicalType> layouts;
+				for(int i = 0; i < cols.size(); i++) {
+					layouts.emplace_back(sink.total_data.Types()[cols[i]]);
+				}
+				builder->Begin(1, arrow::internal::CpuInfo::AVX2, &BufferManager::GetBufferManager(context), layouts, 0, filter.get());
 #else
-			auto builder = make_shared<BloomFilterBuilder_SingleThreaded>();
-			builder->Begin(1, arrow::internal::CpuInfo::AVX2, arrow::default_memory_pool(), num_rows, 0, filter.get());
+				auto builder = make_shared<BloomFilterBuilder_SingleThreaded>();
+				builder->Begin(1, arrow::internal::CpuInfo::AVX2, arrow::default_memory_pool(), num_rows, 0, filter.get());
 #endif
-			sink.builders.emplace_back(builder);
-		} else {
+				sink.builders.emplace_back(builder);
+			} else {
 #ifdef UseHashFilter
-			auto builder = make_shared<HashFilterBuilder_Parallel>();
-			auto cols = filter->BoundColsBuilt;
-			vector<LogicalType> layouts;
-			for(int i = 0; i < cols.size(); i++) {
-				layouts.emplace_back(sink.total_data.Types()[cols[i]]);
-			}
-			builder->Begin(num_threads, arrow::internal::CpuInfo::AVX2, &BufferManager::GetBufferManager(context), layouts, 0, filter.get());
+				auto builder = make_shared<HashFilterBuilder_Parallel>();
+				auto cols = filter->BoundColsBuilt;
+				vector<LogicalType> layouts;
+				for(int i = 0; i < cols.size(); i++) {
+					layouts.emplace_back(sink.total_data.Types()[cols[i]]);
+				}
+				builder->Begin(num_threads, arrow::internal::CpuInfo::AVX2, &BufferManager::GetBufferManager(context), layouts, 0, filter.get());
 #else
-			auto builder = make_shared<BloomFilterBuilder_Parallel>();
-			builder->Begin(num_threads, arrow::internal::CpuInfo::AVX2, arrow::default_memory_pool(), num_rows, 0, filter.get());
+				auto builder = make_shared<BloomFilterBuilder_Parallel>();
+				builder->Begin(num_threads, arrow::internal::CpuInfo::AVX2, arrow::default_memory_pool(), num_rows, 0, filter.get());
 #endif
-			sink.builders.emplace_back(builder);
+				sink.builders.emplace_back(builder);
+			}
 		}
 	}
 
@@ -271,7 +330,7 @@ public:
 		: context(context) {
 		D_ASSERT(op.sink_state);
 		auto &gstate = op.sink_state->Cast<CreateBFGlobalSinkState>();
-		gstate.total_data.InitializeScan(scan_state);
+		gstate.total_data->InitializeScan(scan_state);
 		partition_id = 0;
 	}
 
@@ -303,7 +362,7 @@ public:
 unique_ptr<GlobalSourceState> PhysicalCreateBF::GetGlobalSourceState(ClientContext &context) const {
 	auto state = make_uniq<CreateBFGlobalSourceState>(context, *this);
 	auto &gstate = sink_state->Cast<CreateBFGlobalSinkState>();
-	auto chunk_count = gstate.total_data.ChunkCount();
+	auto chunk_count = gstate.total_data->ChunkCount();
 	const idx_t num_threads = TaskScheduler::GetScheduler(context).NumberOfThreads();
 	auto chunks_per_thread = MaxValue<idx_t>((chunk_count + num_threads - 1) / num_threads, 1);
 	idx_t chunk_idx = 0;
@@ -346,7 +405,7 @@ SourceResultType PhysicalCreateBF::GetData(ExecutionContext &context, DataChunk 
 	} else if(lstate.local_current_chunk_id >= lstate.chunk_to) {
 		return SourceResultType::FINISHED;
 	}
-	gstate.total_data.FetchChunk(lstate.local_current_chunk_id++, chunk);
+	gstate.total_data->FetchChunk(lstate.local_current_chunk_id++, chunk);
 	return SourceResultType::HAVE_MORE_OUTPUT;
 }
 
