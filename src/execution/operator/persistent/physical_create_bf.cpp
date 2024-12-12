@@ -8,8 +8,6 @@
 #include "duckdb/common/types/row/tuple_data_collection.hpp"
 #include "duckdb/storage/buffer_manager.hpp"
 #include "duckdb/common/types/column/partitioned_column_data.hpp"
-#include "duckdb/common/radix_partitioning.hpp"
-#include "duckdb/storage/temporary_memory_manager.hpp"
 
 #include <sys/types.h>
 #include <thread>
@@ -29,7 +27,9 @@ PhysicalCreateBF::PhysicalCreateBF(vector<LogicalType> types, vector<shared_ptr<
 class CreateBFGlobalSinkState : public GlobalSinkState {
 public:
 	CreateBFGlobalSinkState(ClientContext &context, const PhysicalCreateBF &op)
-		: op(op), temporary_memory_state(TemporaryMemoryManager::Get(context).Register(context)) {
+		: op(op), temporary_memory_state(TemporaryMemoryManager::Get(context).Register(context)),
+		  partition_start(0), partition_end(0), max_partition_count(0),
+		  max_partition_size(0) {
 			total_partitioned_data = make_uniq<RadixPartitionedColumnData>(context, op.types, 3, op.types.size() - 1);
 			total_data = make_uniq<ColumnDataCollection>(context, op.types);
 		}
@@ -52,6 +52,11 @@ public:
 	unique_ptr<TemporaryMemoryState> temporary_memory_state;
 
 	bool external;
+	idx_t max_partition_size;
+	idx_t max_partition_count;
+
+	idx_t partition_start;
+	idx_t partition_end;
 };
 
 class CreateBFLocalSinkState : public LocalSinkState {
@@ -150,6 +155,17 @@ public:
 			}
 		}
 #endif
+		if (sink.external && sink.op.LoadInMem(RadixPartitioning::NumberOfPartitions(3), sink.max_partition_size, sink)) {
+			vector<shared_ptr<Task>> finalize_tasks;
+			auto &buffer = sink.total_data;
+			const auto chunk_count = buffer->ChunkCount();
+			finalize_tasks.push_back(make_uniq<CreateBFFinalizeTask>(event, this->executor.context, sink, 0, chunk_count, 1));
+			event->SetTasks(std::move(finalize_tasks));
+		} else {
+			/* We stop load and wait for source for load */
+			sink.partition_start = 0;
+			sink.partition_end = 0;
+		}
 		event->FinishTask();
 		tcontext.profiler.EndOperator(nullptr);
 		this->executor.Flush(tcontext);
@@ -202,15 +218,8 @@ public:
 		SetTasks(std::move(finalize_tasks));
 	}
 
-	/*
-	void FinishEvent() override {
-		for(auto& builders : sink.builders) {
-			for(auto& builder : builders.second) {
-				builder->Merge();
-			}
-		}
-	}
-	*/
+	// void FinishEvent() override {
+	// }
 
 	static constexpr const idx_t PARALLEL_CONSTRUCT_THRESHOLD = 1048576;
 };
@@ -218,6 +227,40 @@ public:
 void CreateBFGlobalSinkState::ScheduleFinalize(Pipeline &pipeline, Event &event) {
 	auto new_event = make_shared<CreateBFFinalizeEvent>(pipeline, *this);
 	event.InsertEvent(std::move(new_event));
+}
+
+bool PhysicalCreateBF::LoadInMem(idx_t num_partitions, idx_t max_partition_size, CreateBFGlobalSinkState &sink) const {
+	sink.total_data->Reset();
+
+	const auto max_partition_data_size = max_partition_size;
+	if (sink.partition_end == num_partitions) {
+		return false;
+	}
+	sink.temporary_memory_state->SetMinimumReservation(max_partition_data_size);
+	// Start where we left off
+	auto &partitions = sink.total_partitioned_data->GetPartitions();
+	sink.partition_start = sink.partition_end;
+
+	// Determine how many partitions we can do next (at least one)
+	idx_t count = 0;
+	idx_t data_size = 0;
+	idx_t partition_idx;
+	for (partition_idx = sink.partition_start; partition_idx < num_partitions; partition_idx++) {
+		auto incl_count = count + partitions[partition_idx]->Count();
+		auto incl_data_size = data_size + partitions[partition_idx]->SizeInBytes();
+		auto incl_ht_size = incl_data_size;
+		if (count > 0 && incl_ht_size > max_partition_data_size) {
+			break;
+		}
+		count = incl_count;
+		data_size = incl_data_size;
+	}
+	sink.partition_end = partition_idx;
+	// Move the partitions to the main data collection
+	for (partition_idx = sink.partition_start; partition_idx < sink.partition_end; partition_idx++) {
+		sink.total_data->Combine(*partitions[partition_idx]);
+	}
+	return true;
 }
 
 SinkFinalizeType PhysicalCreateBF::Finalize(Pipeline &pipeline, Event &event, ClientContext &context,
@@ -241,18 +284,15 @@ SinkFinalizeType PhysicalCreateBF::Finalize(Pipeline &pipeline, Event &event, Cl
 
 	idx_t total_size = 0;
 	idx_t total_count = 0;
-	idx_t max_partition_ht_size = 0;
-	idx_t max_partition_size = 0;
-	idx_t max_partition_count = 0;
+	sink.max_partition_size = 0;
+	sink.max_partition_count = 0;
 	for (idx_t i = 0; i < num_partitions; i++) {
 		total_size += partition_sizes[i];
 		total_count += partition_counts[i];
-
 		auto partition_size = partition_sizes[i];
-		if (partition_size > max_partition_ht_size) {
-			max_partition_ht_size = partition_size;
-			max_partition_size = partition_sizes[i];
-			max_partition_count = partition_counts[i];
+		if (partition_size > sink.max_partition_size) {
+			sink.max_partition_size = partition_sizes[i];
+			sink.max_partition_count = partition_counts[i];
 		}
 	}
 
@@ -267,43 +307,46 @@ SinkFinalizeType PhysicalCreateBF::Finalize(Pipeline &pipeline, Event &event, Cl
 		sink.total_partitioned_data->Combine(*local_data);
 	}
 	sink.local_data_collections.clear();
+	int64_t num_rows = 0;
 	if (sink.external) {
 		std::cout << "CreateBF external" << std::endl;
-	}
-	else {
+		num_rows = total_count;
+		LoadInMem(num_partitions, sink.max_partition_size, sink);
+	} else {
 		sink.total_data = sink.total_partitioned_data->GetUnpartitioned();
-		int64_t num_rows = sink.total_data->Count();
-		const idx_t num_threads = TaskScheduler::GetScheduler(context).NumberOfThreads();
-		for (auto &filter : bf_to_create) {
-			if (num_threads == 1) {
+		num_rows = sink.total_data->Count();
+	}
+
+	const idx_t num_threads = TaskScheduler::GetScheduler(context).NumberOfThreads();
+	for (auto &filter : bf_to_create) {
+		if (num_threads == 1) {
 #ifdef UseHashFilter
-				auto builder = make_shared<HashFilterBuilder_SingleThreaded>();
-				auto cols = filter->BoundColsBuilt;
-				vector<LogicalType> layouts;
-				for(int i = 0; i < cols.size(); i++) {
-					layouts.emplace_back(sink.total_data.Types()[cols[i]]);
-				}
-				builder->Begin(1, arrow::internal::CpuInfo::AVX2, &BufferManager::GetBufferManager(context), layouts, 0, filter.get());
-#else
-				auto builder = make_shared<BloomFilterBuilder_SingleThreaded>();
-				builder->Begin(1, arrow::internal::CpuInfo::AVX2, arrow::default_memory_pool(), num_rows, 0, filter.get());
-#endif
-				sink.builders.emplace_back(builder);
-			} else {
-#ifdef UseHashFilter
-				auto builder = make_shared<HashFilterBuilder_Parallel>();
-				auto cols = filter->BoundColsBuilt;
-				vector<LogicalType> layouts;
-				for(int i = 0; i < cols.size(); i++) {
-					layouts.emplace_back(sink.total_data.Types()[cols[i]]);
-				}
-				builder->Begin(num_threads, arrow::internal::CpuInfo::AVX2, &BufferManager::GetBufferManager(context), layouts, 0, filter.get());
-#else
-				auto builder = make_shared<BloomFilterBuilder_Parallel>();
-				builder->Begin(num_threads, arrow::internal::CpuInfo::AVX2, arrow::default_memory_pool(), num_rows, 0, filter.get());
-#endif
-				sink.builders.emplace_back(builder);
+			auto builder = make_shared<HashFilterBuilder_SingleThreaded>();
+			auto cols = filter->BoundColsBuilt;
+			vector<LogicalType> layouts;
+			for(int i = 0; i < cols.size(); i++) {
+				layouts.emplace_back(sink.total_data.Types()[cols[i]]);
 			}
+			builder->Begin(1, arrow::internal::CpuInfo::AVX2, &BufferManager::GetBufferManager(context), layouts, 0, filter.get());
+#else
+			auto builder = make_shared<BloomFilterBuilder_SingleThreaded>();
+			builder->Begin(1, arrow::internal::CpuInfo::AVX2, arrow::default_memory_pool(), num_rows, 0, filter.get());
+#endif
+			sink.builders.emplace_back(builder);
+		} else {
+#ifdef UseHashFilter
+			auto builder = make_shared<HashFilterBuilder_Parallel>();
+			auto cols = filter->BoundColsBuilt;
+			vector<LogicalType> layouts;
+			for(int i = 0; i < cols.size(); i++) {
+				layouts.emplace_back(sink.total_data.Types()[cols[i]]);
+			}
+			builder->Begin(num_threads, arrow::internal::CpuInfo::AVX2, &BufferManager::GetBufferManager(context), layouts, 0, filter.get());
+#else
+			auto builder = make_shared<BloomFilterBuilder_Parallel>();
+			builder->Begin(num_threads, arrow::internal::CpuInfo::AVX2, arrow::default_memory_pool(), num_rows, 0, filter.get());
+#endif
+			sink.builders.emplace_back(builder);
 		}
 	}
 
@@ -362,6 +405,9 @@ public:
 unique_ptr<GlobalSourceState> PhysicalCreateBF::GetGlobalSourceState(ClientContext &context) const {
 	auto state = make_uniq<CreateBFGlobalSourceState>(context, *this);
 	auto &gstate = sink_state->Cast<CreateBFGlobalSinkState>();
+	if (gstate.external) {
+		LoadInMem(RadixPartitioning::NumberOfPartitions(3), gstate.max_partition_size, gstate);
+	}
 	auto chunk_count = gstate.total_data->ChunkCount();
 	const idx_t num_threads = TaskScheduler::GetScheduler(context).NumberOfThreads();
 	auto chunks_per_thread = MaxValue<idx_t>((chunk_count + num_threads - 1) / num_threads, 1);
@@ -388,9 +434,6 @@ SourceResultType PhysicalCreateBF::GetData(ExecutionContext &context, DataChunk 
 	auto &gstate = sink_state->Cast<CreateBFGlobalSinkState>();
 	auto &lstate = input.local_state.Cast<CreateBFLocalSourceState>();
 	auto &state = input.global_state.Cast<CreateBFGlobalSourceState>();
-	// if (!gstate.data.Scan(state.scan_state, lstate.scan_state, chunk)) {
-	//	return SourceResultType::FINISHED;
-	// }
 	if(lstate.initial) {
 		lstate.local_partition_id = state.partition_id++;
 		lstate.initial = false;
@@ -403,7 +446,20 @@ SourceResultType PhysicalCreateBF::GetData(ExecutionContext &context, DataChunk 
 	if (lstate.local_current_chunk_id == 0) {
 		lstate.local_current_chunk_id = lstate.chunk_from;
 	} else if(lstate.local_current_chunk_id >= lstate.chunk_to) {
-		return SourceResultType::FINISHED;
+		if (gstate.external && LoadInMem(RadixPartitioning::NumberOfPartitions(3), gstate.max_partition_size, gstate)) {
+			auto chunk_count = gstate.total_data->ChunkCount();
+			const idx_t num_threads = 1;
+			auto chunks_per_thread = MaxValue<idx_t>((chunk_count + num_threads - 1) / num_threads, 1);
+			auto chunk_idx_from = 0;
+			auto chunk_idx_to = chunk_count;
+			state.chunks_todo.clear();
+			state.chunks_todo.emplace_back(chunk_idx_from, chunk_idx_to);
+			lstate.local_current_chunk_id = 0;
+			lstate.initial = true;
+			return SourceResultType::HAVE_MORE_OUTPUT;
+		} else {
+			return SourceResultType::FINISHED;
+		}
 	}
 	gstate.total_data->FetchChunk(lstate.local_current_chunk_id++, chunk);
 	return SourceResultType::HAVE_MORE_OUTPUT;
