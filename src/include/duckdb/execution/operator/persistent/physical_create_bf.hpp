@@ -75,5 +75,6 @@ public:
 
 private:
     idx_t counter = 0;
+	shared_ptr<idx_t> count_for_debug;
 };
 }
