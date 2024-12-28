@@ -15,8 +15,8 @@ WITH my_customers
                 c 
          WHERE  sold_date_sk = d_date_sk 
                 AND item_sk = i_item_sk 
-                AND i_category = 'Sports' 
-                AND i_class = 'fitness' 
+                AND i_category = 'Music'
+                AND i_class = 'country' 
                 AND c_customer_sk = cs_or_ws_sales.customer_sk 
                 AND d_moy = 5 
                 AND d_year = 2000), 
