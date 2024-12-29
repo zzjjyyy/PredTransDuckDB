@@ -169,11 +169,11 @@ unique_ptr<LogicalOperator> Optimizer::Optimize(unique_ptr<LogicalOperator> plan
 
 	// perform statistics propagation
 	column_binding_map_t<unique_ptr<BaseStatistics>> statistics_map;
-	RunOptimizer(OptimizerType::STATISTICS_PROPAGATION, [&]() {
-		StatisticsPropagator propagator(*this);
-		propagator.PropagateStatistics(plan);
-		statistics_map = propagator.GetStatisticsMap();
-	});
+	// RunOptimizer(OptimizerType::STATISTICS_PROPAGATION, [&]() {
+	// 	StatisticsPropagator propagator(*this);
+	// 	propagator.PropagateStatistics(plan);
+	// 	statistics_map = propagator.GetStatisticsMap();
+	// });
 
 	// creates projection maps so unused columns are projected out early
 	RunOptimizer(OptimizerType::COLUMN_LIFETIME, [&]() {
