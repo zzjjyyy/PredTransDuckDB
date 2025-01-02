@@ -564,13 +564,20 @@ unique_ptr<JoinNode> PlanEnumerator::SolveJoinOrderLeftDeep() {
 	for (int join_size = 1; join_size < query_graph_manager.relation_manager.NumRelations(); join_size++) {
 		for (int left_idx = 0; left_idx < join_rels[join_size - 1].size(); left_idx++) {
 			auto &left = join_rels[join_size - 1][left_idx];
-			for (int right_idx; right_idx < join_rels[0].size(); right_idx++) {
+			for (int right_idx = 0; right_idx < join_rels[0].size(); right_idx++) {
 				auto &right = join_rels[0][right_idx];
 				if (!JoinRelationSet::IsSubset(*left, *right)) {
 					auto connection = query_graph.GetConnections(*left, *right);
 					if (!connection.empty()) {
+						auto &new_set = query_graph_manager.set_manager.Union(*left, *right);
+						bool add2join_rels = false;
+						if(plans.find(new_set) == plans.end()) {
+							add2join_rels = true;
+						}
 						auto &node = EmitPair(*left, *right, connection);
-						join_rels[join_size].push_back(&node.set);
+						if (add2join_rels) {
+							join_rels[join_size].push_back(&node.set);
+						}
 						UpdateDPTree(node);
 					}
 				}
