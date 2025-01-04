@@ -494,7 +494,7 @@ PendingExecutionResult Executor::ExecuteTask() {
 
 		// an exception has occurred executing one of the pipelines
 		// we need to cancel all tasks associated with this executor
-		CancelTasks();
+		// CancelTasks();
 		ThrowException();
 	}
 	D_ASSERT(!task);

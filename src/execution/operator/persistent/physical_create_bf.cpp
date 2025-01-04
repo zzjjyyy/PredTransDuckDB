@@ -32,7 +32,13 @@ public:
 		: op(op), temporary_memory_state(TemporaryMemoryManager::Get(context).Register(context)),
 		  partition_start(0), partition_end(0), max_partition_count(0),
 		  max_partition_size(0) {
+#ifdef External
+			TupleDataLayout layout;
+			layout.Initialize(op.types, false);
+			total_data = make_uniq<TupleDataCollection>(BufferManager::GetBufferManager(context), layout);
+#else
 			total_data = make_uniq<ColumnDataCollection>(context, op.types);
+#endif
 		}
 
 	void ScheduleFinalize(Pipeline &pipeline, Event &event);
@@ -40,16 +46,20 @@ public:
 	mutex glock;
 	const PhysicalCreateBF &op;
 
-	unique_ptr<ColumnDataCollection> total_data;
-
+	
 #ifdef UseHashFilter
 	vector<shared_ptr<HashFilterBuilder>> builders;
 #else
 	vector<shared_ptr<BloomFilterBuilder>> builders;
 #endif
 
+#ifdef External
+	vector<unique_ptr<TupleDataCollection>> local_data_collections;
+	unique_ptr<TupleDataCollection> total_data;
+#else
 	vector<unique_ptr<ColumnDataCollection>> local_data_collections;
-
+	unique_ptr<ColumnDataCollection> total_data;
+#endif
 	unique_ptr<TemporaryMemoryState> temporary_memory_state;
 
 	bool external;
@@ -65,7 +75,9 @@ public:
 	CreateBFLocalSinkState(ClientContext &context, const PhysicalCreateBF &op) 
 		: client_context(context) {
 #ifdef External
-		auto local_data_partition = make_uniq<ColumnDataCollection>(context, op.types);
+		TupleDataLayout layout;
+		layout.Initialize(op.types, false);
+		auto local_data_partition = make_uniq<TupleDataCollection>(BufferManager::GetBufferManager(context), layout);
 		local_data.emplace_back(std::move(local_data_partition));
 		local_partition_id = 0;
 		temporary_memory_state = TemporaryMemoryManager::Get(context).Register(context);
@@ -77,7 +89,7 @@ public:
 	ClientContext &client_context;
 
 #ifdef External
-	vector<unique_ptr<ColumnDataCollection>> local_data;
+	vector<unique_ptr<TupleDataCollection>> local_data;
 	idx_t local_partition_id;
 	unique_ptr<TemporaryMemoryState> temporary_memory_state;
 #else
@@ -89,7 +101,9 @@ SinkResultType PhysicalCreateBF::Sink(ExecutionContext &context, DataChunk &chun
 	auto &state = input.local_state.Cast<CreateBFLocalSinkState>();
 #ifdef External
 	if (state.local_data[state.local_partition_id]->SizeInBytes() + 8 * chunk.size() * chunk.ColumnCount() > state.temporary_memory_state->GetReservation()) {
-		auto local_data_partition = make_uniq<ColumnDataCollection>(state.client_context, types);
+		TupleDataLayout layout;
+		layout.Initialize(this->types, false);
+		auto local_data_partition = make_uniq<TupleDataCollection>(BufferManager::GetBufferManager(state.client_context), layout);
 		state.local_data.emplace_back(std::move(local_data_partition));
 		state.local_data[++state.local_partition_id]->Append(chunk);
 	} else {
@@ -141,9 +155,11 @@ public:
 		if (sink.external) {
 			for(int i = 0; i < sink.local_data_collections.size(); i++) {
 				DataChunk chunk;
-				sink.local_data_collections[i]->InitializeScanChunk(chunk);
-				for(int j = 0; j < sink.local_data_collections[i]->ChunkCount(); j++) {
-					sink.local_data_collections[i]->FetchChunk(j, chunk);
+				sink.local_data_collections[i]->InitializeChunk(chunk);
+				TupleDataScanState state;
+				sink.local_data_collections[i]->InitializeScan(state);
+				while (true) {
+					sink.local_data_collections[i]->Scan(state, chunk);
 					if (chunk.size() == 0) {
 						break;
 					}
@@ -162,18 +178,15 @@ public:
 				}
 			}
 		} else {
-			size_t thread_id = 0;
-			std::thread::id threadId = std::this_thread::get_id();
-			for(size_t i = 0; i < threads.size(); i++) {
-				if (threadId == threads[i]->internal_thread->get_id()) {
-					thread_id = i + 1;
+			DataChunk chunk;
+			TupleDataScanState state;
+			sink.total_data->InitializeChunk(chunk);
+			sink.total_data->InitializeScan(state);
+			while (true) {
+				sink.total_data->Scan(state, chunk);
+				if (chunk.size() == 0) {
 					break;
 				}
-			}
-			for (idx_t i = chunk_idx_from; i < chunk_idx_to; i++) {
-				DataChunk chunk;
-				sink.total_data->InitializeScanChunk(chunk);
-				sink.total_data->FetchChunk(i, chunk);
 				for(auto &builder : sink.builders) {
 					auto cols = builder->BuiltCols();
 					Vector hashes(LogicalType::HASH);
@@ -184,7 +197,7 @@ public:
 					if(hashes.GetVectorType() == VectorType::CONSTANT_VECTOR) {
 						hashes.Flatten(chunk.size());
 					}
-					builder->PushNextBatch(thread_id, chunk.size(), (hash_t*)hashes.GetData());
+					builder->PushNextBatch(0, chunk.size(), (hash_t*)hashes.GetData());
 				}
 			}
 		}
@@ -311,7 +324,7 @@ SinkFinalizeType PhysicalCreateBF::Finalize(Pipeline &pipeline, Event &event, Cl
 	vector<idx_t> partition_sizes(num_partitions, 0);
 	vector<idx_t> partition_counts(num_partitions, 0);
 	for (int i = 0; i < sink.local_data_collections.size(); i++) {
-		D_ASSERT(partition_sizes.size() == sink_collection->sink.local_data_collections.size());
+		D_ASSERT(partition_sizes.size() == sink.local_data_collections.size());
 		D_ASSERT(partition_sizes.size() == partition_counts.size());
 		partition_sizes[i] += sink.local_data_collections[i]->SizeInBytes();
 		partition_counts[i] += sink.local_data_collections[i]->Count();
@@ -339,6 +352,7 @@ SinkFinalizeType PhysicalCreateBF::Finalize(Pipeline &pipeline, Event &event, Cl
 
 	sink.external = sink.temporary_memory_state->GetReservation() < total_size;
 	if (sink.external) {
+		std::cout << "External Create BF" << std::endl;
 		if (num_threads > 1) {
 			throw InternalException("External CreateBF can only be used under single-thread.");
 		}
@@ -413,11 +427,19 @@ public:
 		: context(context) {
 		D_ASSERT(op.sink_state);
 		auto &gstate = op.sink_state->Cast<CreateBFGlobalSinkState>();
+#ifdef External
 		gstate.total_data->InitializeScan(scan_state);
+#else
+		gstate.total_data->InitializeScan(scan_state);
+#endif
 		partition_id = 0;
 	}
 
+#ifdef External
+	TupleDataScanState scan_state;
+#else
 	ColumnDataParallelScanState scan_state;
+#endif
 	ClientContext &context;
 	vector<pair<idx_t, idx_t>> chunks_todo;
 	std::atomic<idx_t> partition_id;
@@ -493,33 +515,26 @@ SourceResultType PhysicalCreateBF::GetData(ExecutionContext &context, DataChunk 
 	if (gstate.external) {
 		if(lstate.initial) {
 			lstate.local_partition_id = 0;
-			lstate.local_current_chunk_id = 0;
 			lstate.initial = false;
+			gstate.local_data_collections[lstate.local_partition_id]->InitializeScan(state.scan_state);
 		}
-		while (lstate.local_current_chunk_id >= gstate.local_data_collections[lstate.local_partition_id]->ChunkCount()) {
+		gstate.local_data_collections[lstate.local_partition_id]->Scan(state.scan_state, chunk);
+		if (chunk.size() == 0) {
 			lstate.local_partition_id++;
-			lstate.local_current_chunk_id = 0;
 			if (lstate.local_partition_id >= gstate.local_data_collections.size()) {
 				return SourceResultType::FINISHED;
 			}
+			gstate.local_data_collections[lstate.local_partition_id]->InitializeScan(state.scan_state);
 		}
-		gstate.local_data_collections[lstate.local_partition_id]->FetchChunk(lstate.local_current_chunk_id++, chunk);
 	} else {
-		if(lstate.initial) {
-			lstate.local_partition_id = state.partition_id++;
+		if (lstate.initial) {
 			lstate.initial = false;
-			if (lstate.local_partition_id >= state.chunks_todo.size()) {
-				return SourceResultType::FINISHED;
-			}
-			lstate.chunk_from = state.chunks_todo[lstate.local_partition_id].first;
-			lstate.chunk_to = state.chunks_todo[lstate.local_partition_id].second;
+			gstate.total_data->InitializeScan(state.scan_state);
 		}
-		if (lstate.local_current_chunk_id == 0) {
-			lstate.local_current_chunk_id = lstate.chunk_from;
-		} else if(lstate.local_current_chunk_id >= lstate.chunk_to) {
+		gstate.total_data->Scan(state.scan_state, chunk);
+		if(chunk.size() == 0) {
 			return SourceResultType::FINISHED;
 		}
-		gstate.total_data->FetchChunk(lstate.local_current_chunk_id++, chunk);
 	}
 #else
 	if(lstate.initial) {

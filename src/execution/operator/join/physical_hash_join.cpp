@@ -14,9 +14,14 @@
 #include "duckdb/storage/buffer_manager.hpp"
 #include "duckdb/storage/storage_manager.hpp"
 #include "duckdb/storage/temporary_memory_manager.hpp"
+#include "duckdb/optimizer/predicate_transfer/setting.hpp"
 
 #ifdef BloomJoin
 #include "duckdb/optimizer/predicate_transfer/bloom_filter/bloom_filter_use_kernel.hpp"
+#endif
+
+#ifdef External
+#include <iostream>
 #endif
 
 namespace duckdb {
@@ -509,6 +514,9 @@ SinkFinalizeType PhysicalHashJoin::Finalize(Pipeline &pipeline, Event &event, Cl
 
 	sink.external = sink.temporary_memory_state->GetReservation() < total_size;
 	if (sink.external) {
+#ifdef External
+		std::cout << "External Hash Join" << std::endl;
+#endif
 		const auto max_partition_ht_size = max_partition_size + JoinHashTable::PointerTableSize(max_partition_count);
 		// External Hash Join
 		sink.perfect_join_executor.reset();
