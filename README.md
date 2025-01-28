@@ -29,7 +29,8 @@ Arrow 16.0 for Bloom filter implementation
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; src/optimizer/predicate_transfer/predicate_transfer_optimizer.cpp: Insert LogicalBF operators into the logical plan  
     
 ## Configuration
-The configuration setting of Robust Predicate Transfer can be found in /src/include/duckdb/optimizer/predicate_transfer/setting.hpp file.  
+The configuration setting of Robust Predicate Transfer can be found in /src/include/duckdb/optimizer/predicate_transfer/setting.hpp file. Once you change the configuration, you have to recompile the whole project.
+
 If you want to use the original DuckDB, comment all lines;  
 If you want to use the DuckDB with Bloom Join optimized, uncomment line 2 (#define BloomJoin);  
 If you want to use the original Predicate Transfer (CIDR2024 version), uncomment line 3 (#define PredicateTransfer) and line 10 (#define SmalltoLarge);  
